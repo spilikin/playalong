@@ -1,0 +1,28 @@
+[project]
+name = "playalong"
+version = "0.1.0"
+description = "Download songs from YouTube and split them into guitar playalong tracks"
+readme = "README.md"
+license = "MIT"
+authors = [
+    { name = "Sergej Suskov" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "bs-roformer-infer>=0.1.5",
+    "numpy>=1.26.4",
+    "soundfile>=0.14.0",
+    "yt-dlp>=2026.8.19",
+]
+
+[project.scripts]
+playalong = "playalong:main"
+
+[build-system]
+requires = ["uv_build>=0.12.17,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]

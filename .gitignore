@@ -1,0 +1,19 @@
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+.venv
+.pytest_cache/
+
+/library/
+.superpowers/
+.DS_Store
+# The desktop app's build output
+/app/target/
+/app/ui/node_modules/
+/app/ui/build/
+/app/ui/.svelte-kit/
+/app/src-tauri/gen/
+.spike/
