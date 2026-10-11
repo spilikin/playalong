@@ -1,5 +1,9 @@
 # playalong
 
+> **Heads up to [Miks Galvanovskis](https://www.youtube.com/watch?v=HUHwtDRaHXw).** His
+> "Kad izdzisīs" is the song this app was built and tuned on, and the one in the screenshot below.
+> Go listen to the original. **Roks ir dzīvs!**
+
 Download a song from YouTube (or use a local file), split it into instrument stems, and render
 playalong tracks, mainly for practising guitar.
 
@@ -7,6 +11,7 @@ Two parts: a command-line tool (`src/`) that makes everything, and a small macOS
 (`app/`) that plays a mix with the chords following along.
 
 ![The player with "Kad izdzisīs" by Miks Galvanovskis: mixes on the left, the chord now and the next four, and the song in bars](docs/screenshot.png)
+*Playing "Kad izdzisīs" by Miks Galvanovskis.*
 
 Separation uses the BS-RoFormer-SW 6-stem model (`bass`, `drums`, `other`, `vocals`,
 `guitar`, `piano`) via [bs-roformer-infer](https://github.com/openmirlab/bs-roformer-infer).
