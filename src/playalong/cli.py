@@ -5,7 +5,7 @@ from pathlib import Path
 from playalong.mix import MAIN_PRESETS, PRESET_HELP, PRESETS, make_mixes, parse_gain
 
 
-def _ingest(source: str, library: Path) -> Path:
+def _ingest(source: str, library: Path, browser: str | None = None) -> Path:
     from playalong.download import fetch, import_file
 
     path = Path(source).expanduser()
@@ -13,7 +13,7 @@ def _ingest(source: str, library: Path) -> Path:
         return import_file(path, library)
     if path.is_dir() and (path / "source.wav").exists():
         return path
-    return fetch(source, library)
+    return fetch(source, library, browser)
 
 
 def _update_song(track_dir: Path, chords=None) -> None:
@@ -103,6 +103,12 @@ def _add_mix_options(p: argparse.ArgumentParser) -> None:
     trim.add_argument("--no-trim", action="store_true", help="keep the video intro")
 
 
+def _add_login_option(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--cookies-from-browser", metavar="BROWSER", dest="browser",
+                   help="use this browser's YouTube login (chrome, safari, firefox, brave, edge...); "
+                        "age-restricted videos need it")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="playalong", description="Turn songs into guitar playalong tracks.")
     parser.add_argument("-l", "--library", type=Path, default=Path("library"),
@@ -112,10 +118,12 @@ def build_parser() -> argparse.ArgumentParser:
     run = sub.add_parser("run", help="everything in one go: download/import, cover, separate, mixes, chords, song file")
     run.add_argument("source", help="YouTube URL, audio file, or existing track directory")
     run.add_argument("--device", help="torch device: cuda, mps or cpu (default: best available)")
+    _add_login_option(run)
     _add_mix_options(run)
 
     dl = sub.add_parser("download", help="download or import audio only")
     dl.add_argument("source", help="YouTube URL or audio file")
+    _add_login_option(dl)
 
     sep = sub.add_parser("separate", help="split a track into stems")
     sep.add_argument("track", type=Path, help="track directory")
@@ -159,7 +167,7 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     if args.command == "download":
-        track_dir = _ingest(args.source, args.library)
+        track_dir = _ingest(args.source, args.library, args.browser)
         print(track_dir)
         fetch_cover(track_dir)
         _update_song(track_dir)
@@ -191,7 +199,7 @@ def main(argv: list[str] | None = None) -> None:
 
     # run: everything from a link (or file) to a song the player can open; finished steps are skipped.
     print("1/5 Download")
-    track_dir = _ingest(args.source, args.library)
+    track_dir = _ingest(args.source, args.library, args.browser)
     print("2/5 Cover")
     fetch_cover(track_dir)
     print("3/5 Separate")

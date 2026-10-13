@@ -4,6 +4,7 @@ import subprocess
 from pathlib import Path
 
 from yt_dlp import YoutubeDL
+from yt_dlp.utils import DownloadError
 
 from playalong.separate import SAMPLE_RATE
 
@@ -16,10 +17,31 @@ def slugify(text: str) -> str:
     return re.sub(r"[-\s]+", "-", text)[:80] or "track"
 
 
-def fetch(url: str, library: Path) -> Path:
-    """Download the audio of a YouTube URL into its own track directory as source.wav."""
-    with YoutubeDL({"quiet": True, "noplaylist": True}) as ydl:
-        info = ydl.extract_info(url, download=False)
+class _Silent:
+    """yt-dlp prints its errors as well as raising them; fetch reports them itself, more briefly."""
+
+    def debug(self, msg: str) -> None: ...
+    def info(self, msg: str) -> None: ...
+    def warning(self, msg: str) -> None: ...
+    def error(self, msg: str) -> None: ...
+
+
+def fetch(url: str, library: Path, browser: str | None = None) -> Path:
+    """Download the audio of a YouTube URL into its own track directory as source.wav.
+
+    `browser` lends yt-dlp that browser's YouTube login, which age-restricted videos need.
+    """
+    login = {"cookiesfrombrowser": (browser,)} if browser else {}
+    try:
+        with YoutubeDL({"quiet": True, "noplaylist": True, "logger": _Silent(), **login}) as ydl:
+            info = ydl.extract_info(url, download=False)
+    except DownloadError as e:
+        message = str(e).removeprefix("ERROR: ")
+        if not browser and ("confirm your age" in message or "Sign in" in message):
+            raise SystemExit(f"{message.split('. Use --cookies')[0]}.\nYouTube wants a signed-in account for this "
+                             "video: log in to YouTube in your browser, then add --cookies-from-browser chrome "
+                             "(or safari, firefox, brave, edge).") from e
+        raise SystemExit(message) from e
 
     track_dir = library / slugify(info.get("title") or info["id"])
     source = track_dir / "source.wav"
@@ -34,6 +56,7 @@ def fetch(url: str, library: Path) -> Path:
         "outtmpl": str(track_dir / "source.%(ext)s"),
         "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "wav"}],
         "postprocessor_args": {"extractaudio": FFMPEG_ARGS},
+        **login,
     }
     with YoutubeDL(opts) as ydl:
         ydl.download([url])
