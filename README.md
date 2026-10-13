@@ -31,6 +31,9 @@ The model weights (~700 MB) download to `~/.cache/bs-roformer-infer` on first us
 # everything in one go: download, album cover, separate, the four main mixes, chords and the song file
 uv run playalong run "https://www.youtube.com/watch?v=..."
 
+# age-restricted videos need your YouTube login: sign in in the browser, then name it
+uv run playalong run "https://www.youtube.com/watch?v=..." --cookies-from-browser chrome
+
 # local files and already-processed tracks work too
 uv run playalong run ~/Music/song.flac
 uv run playalong run library/some-song --all --tempo 0.8
