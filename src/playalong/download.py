@@ -1,6 +1,8 @@
 import json
+import plistlib
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 from yt_dlp import YoutubeDL
@@ -26,22 +28,85 @@ class _Silent:
     def error(self, msg: str) -> None: ...
 
 
+# Bundle ids of the browsers yt-dlp can read logins from, as macOS names them for the default browser.
+BROWSERS = {
+    "com.apple.safari": "safari",
+    "com.google.chrome": "chrome",
+    "org.mozilla.firefox": "firefox",
+    "com.brave.browser": "brave",
+    "com.microsoft.edgemac": "edge",
+    "com.vivaldi.vivaldi": "vivaldi",
+    "com.operasoftware.opera": "opera",
+    "org.chromium.chromium": "chromium",
+}
+LAUNCH_SERVICES = Path.home() / "Library/Preferences/com.apple.LaunchServices/com.apple.launchservices.secure.plist"
+ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def default_browser(plist: Path = LAUNCH_SERVICES) -> str | None:
+    """The browser that opens web links (Safari unless another was chosen), if yt-dlp can use it."""
+    try:
+        handlers = plistlib.loads(plist.read_bytes()).get("LSHandlers", [])
+    except (OSError, plistlib.InvalidFileException):
+        handlers = []
+    for handler in handlers:
+        if handler.get("LSHandlerURLScheme") == "https":
+            return BROWSERS.get(str(handler.get("LSHandlerRoleAll", "")).lower())
+    return "safari" if sys.platform == "darwin" else None
+
+
+def _brief(error: Exception) -> str:
+    """yt-dlp's message without its colours, "ERROR:" and the cookie FAQ links."""
+    message = ANSI.sub("", str(error)).removeprefix("ERROR: ").strip()
+    return message.split(". Use --cookies")[0].rstrip(".") + "."
+
+
+def _needs_login(message: str) -> bool:
+    return "confirm your age" in message or "Sign in" in message
+
+
+def _login_help(browser: str) -> str:
+    if browser == "safari":
+        return ("Couldn't read your Safari login: macOS keeps it private unless your terminal app has Full Disk "
+                "Access (System Settings > Privacy & Security > Full Disk Access). Allow it, restart the terminal "
+                "and run this again, or sign in to YouTube in another browser and add --cookies-from-browser chrome.")
+    return (f"Make sure you're signed in to YouTube in {browser.title()}, or name another browser with "
+            "--cookies-from-browser (safari, chrome, firefox, brave, edge).")
+
+
+def _info(url: str, browser: str | None) -> dict:
+    login = {"cookiesfrombrowser": (browser,)} if browser else {}
+    with YoutubeDL({"quiet": True, "noplaylist": True, "logger": _Silent(), **login}) as ydl:
+        return ydl.extract_info(url, download=False)
+
+
 def fetch(url: str, library: Path, browser: str | None = None) -> Path:
     """Download the audio of a YouTube URL into its own track directory as source.wav.
 
-    `browser` lends yt-dlp that browser's YouTube login, which age-restricted videos need.
+    `browser` lends yt-dlp that browser's YouTube login, which age-restricted videos need. Without one, a
+    video that needs a login is tried again with the default browser's.
     """
-    login = {"cookiesfrombrowser": (browser,)} if browser else {}
     try:
-        with YoutubeDL({"quiet": True, "noplaylist": True, "logger": _Silent(), **login}) as ydl:
-            info = ydl.extract_info(url, download=False)
+        info = _info(url, browser)
     except DownloadError as e:
-        message = str(e).removeprefix("ERROR: ")
-        if not browser and ("confirm your age" in message or "Sign in" in message):
-            raise SystemExit(f"{message.split('. Use --cookies')[0]}.\nYouTube wants a signed-in account for this "
-                             "video: log in to YouTube in your browser, then add --cookies-from-browser chrome "
-                             "(or safari, firefox, brave, edge).") from e
-        raise SystemExit(message) from e
+        message = _brief(e)
+        if browser or not _needs_login(message):
+            raise SystemExit(f"{message}\n{_login_help(browser)}" if browser and _needs_login(message) else message) from e
+        browser = default_browser()
+        if browser is None:
+            raise SystemExit(f"{message}\nYouTube wants a signed-in account for this video: sign in to YouTube in "
+                             "your browser and add --cookies-from-browser chrome (or safari, firefox...).") from e
+        print(f"YouTube wants a signed-in account for this video, using your {browser.title()} login")
+        try:
+            info = _info(url, browser)
+        # Reading another app's login fails in many ways (no permission, no profile, locked keychain).
+        except Exception as again:
+            raise SystemExit(f"{_brief(again)}\n{_login_help(browser)}") from again
+    except Exception as e:
+        if not browser:
+            raise
+        raise SystemExit(f"{_brief(e)}\n{_login_help(browser)}") from e
+    login = {"cookiesfrombrowser": (browser,)} if browser else {}
 
     track_dir = library / slugify(info.get("title") or info["id"])
     source = track_dir / "source.wav"
