@@ -15,6 +15,7 @@ class FakeYoutubeDL:
 
     seen: list[dict] = []
     unreadable = False
+    refused = False
 
     def __init__(self, opts):
         FakeYoutubeDL.seen.append(opts)
@@ -31,12 +32,14 @@ class FakeYoutubeDL:
             raise DownloadError(AGE)
         if FakeYoutubeDL.unreadable:
             raise PermissionError(1, "Operation not permitted")
+        if FakeYoutubeDL.refused:
+            raise DownloadError("ERROR: [youtube] abc: The page needs to be reloaded.")
         return {"id": "abc", "title": "Artist - Song"}
 
 
 @pytest.fixture
 def ydl(monkeypatch, tmp_path):
-    FakeYoutubeDL.seen, FakeYoutubeDL.unreadable = [], False
+    FakeYoutubeDL.seen, FakeYoutubeDL.unreadable, FakeYoutubeDL.refused = [], False, False
     monkeypatch.setattr(download, "YoutubeDL", FakeYoutubeDL)
     monkeypatch.setattr(download, "default_browser", lambda: "safari")
     # Already downloaded, so a successful lookup stops before any real download.
@@ -56,6 +59,15 @@ def test_an_unreadable_safari_login_says_how_to_allow_it(ydl, tmp_path):
     with pytest.raises(SystemExit) as e:
         download.fetch("https://youtu.be/abc", tmp_path)
     assert "Full Disk Access" in str(e.value)
+
+
+def test_a_login_youtube_still_refuses_is_not_blamed_on_access(ydl, tmp_path):
+    ydl.refused = True
+    with pytest.raises(SystemExit) as e:
+        download.fetch("https://youtu.be/abc", tmp_path)
+    assert "The page needs to be reloaded." in str(e.value)
+    assert "still refused it with your Safari login" in str(e.value)
+    assert "Full Disk Access" not in str(e.value)
 
 
 def test_a_named_browser_is_used_straight_away(ydl, tmp_path):

@@ -99,6 +99,9 @@ def fetch(url: str, library: Path, browser: str | None = None) -> Path:
         print(f"YouTube wants a signed-in account for this video, using your {browser.title()} login")
         try:
             info = _info(url, browser)
+        except DownloadError as again:
+            raise SystemExit(f"{_brief(again)}\nYouTube still refused it with your {browser.title()} login; check "
+                             f"that you're signed in to YouTube there.") from again
         # Reading another app's login fails in many ways (no permission, no profile, locked keychain).
         except Exception as again:
             raise SystemExit(f"{_brief(again)}\n{_login_help(browser)}") from again
