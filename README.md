@@ -184,6 +184,23 @@ library/<song>/
 - Guitar separation is good, not perfect: expect some bleed between `guitar` and `other`,
   especially with keys or synth pads in the same range.
 
+## Portable runtime
+
+```sh
+uv run python runtime/build.py
+```
+
+builds `dist/Playalong Runtime/` (about 1.5 GB), a folder that runs the CLI on another Apple Silicon Mac
+with nothing installed: copy it over and run `"Playalong Runtime/bin/playalong" run <url>`. Inside are a
+standalone Python with the project and its packages, the separation model, and ffmpeg, ffprobe and deno
+with their libraries; `runtime.json` holds its version. Building needs this Mac's setup (uv, Homebrew's
+ffmpeg and deno, the model fetched once by `playalong separate`).
+
+Most of the size is the separation model (670 MB) and PyTorch (545 MB) that runs it; Python and the
+other packages are about 210 MB, deno 125 MB, ffmpeg and its libraries 40 MB. A folder copied with
+AirDrop or downloaded in a browser is quarantined by macOS; clear that once with
+`xattr -dr com.apple.quarantine "Playalong Runtime"`.
+
 ## Player app
 
 A small macOS app (Tauri 2 + Svelte, in `app/`) that opens a song made by the CLI and plays one of its
