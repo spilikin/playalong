@@ -106,68 +106,26 @@ def place_beat(audio: np.ndarray, rate: int, start: float, beat: float, at: floa
     return np.concatenate([np.zeros((silence, audio.shape[1]), dtype=audio.dtype), out])
 
 
-ATEMPO_MIN = 0.5  # ffmpeg's atempo takes 0.5–100 per filter
+def stretch(audio: np.ndarray, rate: int, tempo: float = 1.0, transpose: int = 0) -> np.ndarray:
+    """The audio at `tempo` times the speed and moved by `transpose` semitones, each without changing the other.
 
-
-def _atempo(factor: float) -> list[str]:
-    """atempo filters whose speeds multiply to `factor`."""
-    filters = []
-    while factor < ATEMPO_MIN:
-        filters.append(f"atempo={ATEMPO_MIN}")
-        factor /= ATEMPO_MIN
-    return [*filters, f"atempo={factor:.6f}"]
-
-
-def _filters(rate: int, tempo: float, transpose: int) -> list[str]:
-    if not transpose:
-        return [f"atempo={tempo}"] if tempo != 1.0 else []  # time-stretch, pitch preserved
-    # Played faster by `ratio` (pitch and speed up together), then stretched back to the wanted tempo:
-    # only the pitch moves, so the count-in and chord timing stay as for an untransposed mix.
-    ratio = 2 ** (transpose / 12)
-    return [f"asetrate={rate * ratio:.4f}", f"aresample={rate}", *_atempo(tempo / ratio)]
-
-
-PROBE_CLICKS = (1.0, 1.43, 1.91, 2.32, 2.77, 3.24, 3.68, 4.13, 4.59)  # seconds; uneven, so no click lines up with the last
-
-
-def _onsets(audio: np.ndarray, rate: int) -> np.ndarray:
-    level = np.abs(audio).max(axis=1)
-    loud = np.flatnonzero(level > 0.3 * level.max())
-    return loud[np.insert(np.diff(loud) > rate * 0.15, 0, True)]
-
-
-def _aligned(filters: list[str], rate: int, tempo: float, tmp: Path) -> list[str]:
-    """`filters` plus a delay or cut that puts the audio where `tempo` says it belongs.
-
-    atempo's overlap-add moves everything by a few tens of milliseconds (it depends on the speed),
-    which would put the music ahead of the count-in timing and the chords. Clicks through the same
-    chain show by how much; the median evens out how each one happens to fall in atempo's windows.
+    Rubber Band (through pedalboard) keeps transients and vocals cleaner than ffmpeg's atempo. Its
+    faster engine is used on purpose: the high-quality one drifts off the beat (about 0.1% at -2
+    semitones, a quarter second by the end of a song), and the count-in and chords rely on the timing.
     """
-    probe = np.zeros((int(rate * (PROBE_CLICKS[-1] + 2)), 1), np.float32)
-    n = int(rate * 0.01)
-    click = (np.sin(2 * np.pi * 1000 * np.arange(n) / rate) * np.linspace(1, 0, n)).astype(np.float32)
-    for t in PROBE_CLICKS:
-        probe[int(t * rate): int(t * rate) + n, 0] = click
-    src, out = tmp / "probe.wav", tmp / "probe-out.wav"
-    sf.write(src, probe, rate, subtype="FLOAT")
-    subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(src),
-                    "-filter:a", ",".join(filters), "-codec:a", "pcm_f32le", str(out)], check=True)
-    found = _onsets(sf.read(out, dtype="float32", always_2d=True)[0], rate)
-    expected = _onsets(probe, rate) / tempo
-    if len(found) != len(expected):
-        return filters  # a click got lost; better unshifted than shifted by a wrong amount
-    shift = int(round(float(np.median(found - expected))))
-    if shift < 0:
-        return [*filters, f"adelay=delays={-shift}S:all=1"]
-    if shift > 0:
-        return [*filters, f"atrim=start_sample={shift}", "asetpts=PTS-STARTPTS"]
-    return filters
+    if tempo == 1.0 and not transpose:
+        return audio
+    from pedalboard import time_stretch
+
+    out = time_stretch(np.ascontiguousarray(audio.T, dtype=np.float32), rate, stretch_factor=tempo,
+                       pitch_shift_in_semitones=float(transpose), high_quality=False)
+    return out.T
 
 
 def write(audio: np.ndarray, rate: int, dest: Path, tempo: float = 1.0, transpose: int = 0) -> Path:
     dest.parent.mkdir(parents=True, exist_ok=True)
-    filters = _filters(rate, tempo, transpose)
-    if dest.suffix == ".wav" and not filters:
+    audio = stretch(audio, rate, tempo, transpose)
+    if dest.suffix == ".wav":
         sf.write(dest, audio, rate, subtype="PCM_24")
         return dest
 
@@ -175,12 +133,8 @@ def write(audio: np.ndarray, rate: int, dest: Path, tempo: float = 1.0, transpos
         raw = Path(tmp) / "mix.wav"
         sf.write(raw, audio, rate, subtype="FLOAT")
         cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(raw)]
-        if filters:
-            cmd += ["-filter:a", ",".join(_aligned(filters, rate, tempo, Path(tmp)))]
         if dest.suffix == ".mp3":
             cmd += ["-codec:a", "libmp3lame", "-b:a", "320k"]
-        elif dest.suffix == ".wav":
-            cmd += ["-codec:a", "pcm_s24le"]
         subprocess.run([*cmd, str(dest)], check=True)
     return dest
 

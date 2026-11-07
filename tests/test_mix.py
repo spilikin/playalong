@@ -106,14 +106,6 @@ def test_place_beat_cuts_music_that_would_come_before_time_zero():
     assert np.flatnonzero(out[:, 0] == 0.5)[0] == 2000
 
 
-def test_atempo_is_chained_below_its_lowest_speed():
-    from playalong.mix import _atempo
-
-    assert _atempo(0.8) == ["atempo=0.800000"]
-    assert _atempo(0.3) == ["atempo=0.5", "atempo=0.600000"]
-    assert _atempo(0.2) == ["atempo=0.5", "atempo=0.5", "atempo=0.800000"]
-
-
 def test_transposing_moves_the_pitch_and_keeps_the_length(tmp_path):
     from playalong.mix import write
 
@@ -143,11 +135,12 @@ def test_stretched_and_transposed_audio_stays_on_its_beat(tmp_path, tempo, trans
     from test_tempo import hits
 
     rate = 44100
-    drums = hits(100.0, seconds=20.0, offset=1.0)
+    drums = hits(100.0, seconds=40.0, offset=1.0)
     out, _ = sf.read(write(np.stack([drums, drums], axis=1), rate, tmp_path / "m.wav", tempo, transpose))
     loud = np.flatnonzero(np.abs(out[:, 0]) > 0.05)
     hit_times = loud[np.insert(np.diff(loud) > rate * 0.2, 0, True)] / rate
     expected = (1.0 + 0.6 * np.arange(len(hit_times))) / tempo
-    error = np.abs(hit_times - expected)
-    # atempo places each beat a little differently; on the whole the music stays where the timing says.
-    assert np.median(error) < 0.008 and error.max() < 0.025
+    error = hit_times - expected
+    # A phase vocoder smears each attack a little early; what must not happen is drift through the song.
+    assert np.abs(error).max() < 0.025
+    assert abs(error[-5:].mean() - error[:5].mean()) < 0.005
