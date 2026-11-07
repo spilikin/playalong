@@ -31,8 +31,14 @@ LAUNCHER = """#!/bin/sh
 here="$(cd "$(dirname "$0")/.." && pwd -P)"
 export PATH="$here/bin:$PATH"
 export BS_ROFORMER_MODELS_PATH="$here/models"
-export PYTHONNOUSERSITE=1
-exec "$here/python/bin/python3" -I -c 'import sys; from playalong import main; sys.argv[0] = "playalong"; main()' "$@"
+export PLAYALONG_RUNTIME="$here"
+# downloader/ comes first: `playalong update-downloader` puts a newer yt-dlp there.
+exec "$here/python/bin/python3" -I -c '
+import os, sys
+sys.path.insert(0, os.path.join(os.environ["PLAYALONG_RUNTIME"], "downloader"))
+sys.argv[0] = "playalong"
+from playalong import main
+main()' "$@"
 """
 
 
