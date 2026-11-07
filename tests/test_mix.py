@@ -122,7 +122,7 @@ def test_transposing_moves_the_pitch_and_keeps_the_length(tmp_path):
     tone = (0.3 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)
     dest = write(np.stack([tone, tone], axis=1), rate, tmp_path / "up.wav", transpose=2)
     out, sr = sf.read(dest)
-    assert sr == rate and len(out) == pytest.approx(len(tone), abs=rate * 0.02)
+    assert sr == rate and len(out) == pytest.approx(len(tone), abs=rate * 0.05)
     middle = out[rate: 2 * rate, 0]
     peak = np.argmax(np.abs(np.fft.rfft(middle))) * rate / len(middle)
     assert peak == pytest.approx(440 * 2 ** (2 / 12), abs=3)
@@ -135,3 +135,19 @@ def test_transposing_down_at_half_speed_still_works(tmp_path):
     tone = np.zeros((rate * 2, 2), np.float32)
     out, _ = sf.read(write(tone, rate, tmp_path / "down.wav", tempo=0.5, transpose=-12))
     assert len(out) == pytest.approx(rate * 4, abs=rate * 0.05)
+
+
+@pytest.mark.parametrize("tempo, transpose", [(0.8, 0), (1.0, -2), (1.0, 5), (0.8, 3)])
+def test_stretched_and_transposed_audio_stays_on_its_beat(tmp_path, tempo, transpose):
+    from playalong.mix import write
+    from test_tempo import hits
+
+    rate = 44100
+    drums = hits(100.0, seconds=20.0, offset=1.0)
+    out, _ = sf.read(write(np.stack([drums, drums], axis=1), rate, tmp_path / "m.wav", tempo, transpose))
+    loud = np.flatnonzero(np.abs(out[:, 0]) > 0.05)
+    hit_times = loud[np.insert(np.diff(loud) > rate * 0.2, 0, True)] / rate
+    expected = (1.0 + 0.6 * np.arange(len(hit_times))) / tempo
+    error = np.abs(hit_times - expected)
+    # atempo places each beat a little differently; on the whole the music stays where the timing says.
+    assert np.median(error) < 0.008 and error.max() < 0.025

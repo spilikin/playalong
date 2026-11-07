@@ -57,3 +57,13 @@ def test_without_a_tempo_the_stems_just_start_at_the_song(tmp_path, capsys):
     assert folder.name == "song - GarageBand"
     assert sf.info(folder / "Drums.wav").frames == RATE * 15
     assert "set the tempo" in capsys.readouterr().out
+
+
+def test_transposed_stems_keep_the_first_beat_on_bar_two(tmp_path):
+    folder = export_stems(track(tmp_path), transpose=-2)
+    assert folder.name == "song - GarageBand 100 BPM -2"
+    plain = export_stems(track(tmp_path / "plain"))
+    drums, rate = sf.read(folder / "Drums.wav")
+    first_hit = np.flatnonzero(np.abs(drums[:, 0]) > 0.05)[0] / rate
+    assert first_hit == pytest.approx(4 * 60 / 100, abs=0.02)
+    assert len(drums) == pytest.approx(sf.info(plain / "Drums.wav").frames, abs=rate * 0.05)

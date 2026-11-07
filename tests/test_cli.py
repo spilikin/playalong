@@ -24,11 +24,15 @@ def test_a_song_without_a_tempo_is_mixed_without_a_count(tmp_path, capsys):
     assert "without a count-in" in capsys.readouterr().out
 
 
-def test_garageband_stems_are_only_written_when_asked_for():
+def test_run_writes_garageband_stems_unless_told_not_to_and_mix_only_when_asked():
     parse = build_parser().parse_args
     assert parse(["mix", "t"]).garageband is False
     assert parse(["mix", "t", "--garageband"]).garageband is True
+    assert parse(["run", "https://youtu.be/x"]).garageband is True
     assert parse(["run", "https://youtu.be/x", "--garageband"]).garageband is True
+    assert parse(["run", "https://youtu.be/x", "--no-garageband"]).garageband is False
+    with pytest.raises(SystemExit):
+        parse(["mix", "t", "--no-garageband"])
 
 
 def test_mixes_record_their_timing_for_players(tmp_path):

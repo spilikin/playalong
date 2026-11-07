@@ -127,6 +127,43 @@ def _filters(rate: int, tempo: float, transpose: int) -> list[str]:
     return [f"asetrate={rate * ratio:.4f}", f"aresample={rate}", *_atempo(tempo / ratio)]
 
 
+PROBE_CLICKS = (1.0, 1.43, 1.91, 2.32, 2.77, 3.24, 3.68, 4.13, 4.59)  # seconds; uneven, so no click lines up with the last
+
+
+def _onsets(audio: np.ndarray, rate: int) -> np.ndarray:
+    level = np.abs(audio).max(axis=1)
+    loud = np.flatnonzero(level > 0.3 * level.max())
+    return loud[np.insert(np.diff(loud) > rate * 0.15, 0, True)]
+
+
+def _aligned(filters: list[str], rate: int, tempo: float, tmp: Path) -> list[str]:
+    """`filters` plus a delay or cut that puts the audio where `tempo` says it belongs.
+
+    atempo's overlap-add moves everything by a few tens of milliseconds (it depends on the speed),
+    which would put the music ahead of the count-in timing and the chords. Clicks through the same
+    chain show by how much; the median evens out how each one happens to fall in atempo's windows.
+    """
+    probe = np.zeros((int(rate * (PROBE_CLICKS[-1] + 2)), 1), np.float32)
+    n = int(rate * 0.01)
+    click = (np.sin(2 * np.pi * 1000 * np.arange(n) / rate) * np.linspace(1, 0, n)).astype(np.float32)
+    for t in PROBE_CLICKS:
+        probe[int(t * rate): int(t * rate) + n, 0] = click
+    src, out = tmp / "probe.wav", tmp / "probe-out.wav"
+    sf.write(src, probe, rate, subtype="FLOAT")
+    subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(src),
+                    "-filter:a", ",".join(filters), "-codec:a", "pcm_f32le", str(out)], check=True)
+    found = _onsets(sf.read(out, dtype="float32", always_2d=True)[0], rate)
+    expected = _onsets(probe, rate) / tempo
+    if len(found) != len(expected):
+        return filters  # a click got lost; better unshifted than shifted by a wrong amount
+    shift = int(round(float(np.median(found - expected))))
+    if shift < 0:
+        return [*filters, f"adelay=delays={-shift}S:all=1"]
+    if shift > 0:
+        return [*filters, f"atrim=start_sample={shift}", "asetpts=PTS-STARTPTS"]
+    return filters
+
+
 def write(audio: np.ndarray, rate: int, dest: Path, tempo: float = 1.0, transpose: int = 0) -> Path:
     dest.parent.mkdir(parents=True, exist_ok=True)
     filters = _filters(rate, tempo, transpose)
@@ -139,7 +176,7 @@ def write(audio: np.ndarray, rate: int, dest: Path, tempo: float = 1.0, transpos
         sf.write(raw, audio, rate, subtype="FLOAT")
         cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(raw)]
         if filters:
-            cmd += ["-filter:a", ",".join(filters)]
+            cmd += ["-filter:a", ",".join(_aligned(filters, rate, tempo, Path(tmp)))]
         if dest.suffix == ".mp3":
             cmd += ["-codec:a", "libmp3lame", "-b:a", "320k"]
         elif dest.suffix == ".wav":

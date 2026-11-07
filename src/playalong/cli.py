@@ -77,10 +77,10 @@ def _mix(args: argparse.Namespace, track_dir: Path) -> None:
     if args.garageband:
         from playalong.garageband import export_stems
 
-        export_stems(track_dir, start, args.bpm)
+        export_stems(track_dir, start, args.bpm, args.transpose)
 
 
-def _add_mix_options(p: argparse.ArgumentParser) -> None:
+def _add_mix_options(p: argparse.ArgumentParser, garageband: bool = False) -> None:
     g = p.add_argument_group("mix options")
     g.add_argument("-p", "--preset", action="append", choices=sorted(PRESETS),
                    help=f"preset to render (repeatable; default: {', '.join(MAIN_PRESETS)})")
@@ -101,8 +101,12 @@ def _add_mix_options(p: argparse.ArgumentParser) -> None:
                        help="start straight into the song")
     g.add_argument("--bpm", type=float,
                    help="the song's tempo for --count-in, if detection gets it wrong (saved for the track)")
-    g.add_argument("--garageband", action="store_true",
-                   help="also write the stems for a GarageBand project (no count-in, tempo or pitch change)")
+    gb = g.add_mutually_exclusive_group()
+    gb.add_argument("--garageband", action="store_true", default=garageband,
+                    help="also write the stems for a GarageBand project (no count-in or tempo change; "
+                         f"--transpose applies){' (default)' if garageband else ''}")
+    if garageband:
+        gb.add_argument("--no-garageband", dest="garageband", action="store_false", help="skip the GarageBand stems")
     trim = g.add_mutually_exclusive_group()
     trim.add_argument("-s", "--start", type=float, metavar="SECONDS",
                       help="where the song starts, overriding intro detection")
@@ -125,7 +129,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("source", help="YouTube URL, audio file, or existing track directory")
     run.add_argument("--device", help="torch device: cuda, mps or cpu (default: best available)")
     _add_login_option(run)
-    _add_mix_options(run)
+    _add_mix_options(run, garageband=True)
 
     dl = sub.add_parser("download", help="download or import audio only")
     dl.add_argument("source", help="YouTube URL or audio file")

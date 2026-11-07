@@ -9,18 +9,18 @@ import shutil
 from pathlib import Path
 
 import numpy as np
-import soundfile as sf
 
 from playalong.countin import BEATS_PER_BAR
 from playalong.intro import song_start
-from playalong.mix import PEAK_CEILING, load_stems, place_beat, trim
+from playalong.mix import PEAK_CEILING, load_stems, place_beat, trim, write
 from playalong.tempo import song_tempo
 
 
-def export_stems(track_dir: Path, start: float | None = None, bpm: float | None = None) -> Path:
+def export_stems(track_dir: Path, start: float | None = None, bpm: float | None = None, transpose: int = 0) -> Path:
     """Write the stems to `mixes/<track> - GarageBand <tempo> BPM/` and return that folder.
 
-    start=None detects the song start, 0 keeps the whole recording.
+    start=None detects the song start, 0 keeps the whole recording; transpose moves the pitch by that many
+    semitones (and adds them to the folder name).
     """
     stems, rate = load_stems(track_dir / "stems")
     if start is None:
@@ -32,6 +32,7 @@ def export_stems(track_dir: Path, start: float | None = None, bpm: float | None 
     # GarageBand takes whole-number tempi; bar 2 has to start where that tempo puts it.
     tempo = None if found is None else math.floor(found[0] + 0.5)
     name = f"{track_dir.name} - GarageBand" + ("" if tempo is None else f" {tempo} BPM")
+    name += f" {transpose:+d}" if transpose else ""
 
     def place(audio: np.ndarray) -> np.ndarray:
         if tempo is None:
@@ -47,7 +48,7 @@ def export_stems(track_dir: Path, start: float | None = None, bpm: float | None 
         shutil.rmtree(folder)
     folder.mkdir(parents=True)
     for stem, audio in stems.items():
-        sf.write(folder / f"{stem.capitalize()}.wav", place(audio) * gain, rate, subtype="PCM_24")
+        write(place(audio) * gain, rate, folder / f"{stem.capitalize()}.wav", transpose=transpose)
 
     if tempo is None:
         print("No steady tempo found: set the tempo in GarageBand by ear (or pass --bpm).")
