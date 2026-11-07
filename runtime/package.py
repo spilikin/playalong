@@ -7,7 +7,7 @@ Two archives, so an update doesn't fetch the model again:
 - `playalong-runtime-<version>-arm64.tar.zst`: Python, packages and tools, in release `runtime-<version>`;
 - `playalong-model-<slug>.tar.zst`: the separation model, in release `model-<slug>`, uploaded once.
 
-`manifest.json` names both with their URLs, sizes and sha256. It lives in release `runtime-latest`,
+`manifest.json` names both with their URLs, sizes and sha256. It lives in release `updates`,
 replaced on each publish, so the app always finds the newest runtime at one URL.
 """
 
@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parent.parent
 REPO = "spilikin/playalong"
 RUNTIME = ROOT / "dist" / "Playalong Runtime"
 OUT = ROOT / "dist" / "release"
-LATEST = "runtime-latest"
+UPDATES = "updates"  # rolling release with what the app polls
 MANIFEST = "manifest.json"
 MANIFEST_FORMAT = "playalong-runtime-manifest"
 # Left out of the runtime archive: the model has its own, and downloader/ is a local update.
@@ -57,8 +57,8 @@ def pack(source: Path, members: list[Path], dest: Path) -> None:
         raise SystemExit(f"zstd failed for {dest.name}")
 
 
-def entry(tag: str, path: Path, unpacked: int, **extra) -> dict:
-    return {**extra, "file": path.name, "url": url(tag, path.name), "size": path.stat().st_size,
+def entry(release: str, path: Path, unpacked: int, **extra) -> dict:
+    return {**extra, "file": path.name, "url": url(release, path.name), "size": path.stat().st_size,
             "sha256": sha256(path), "unpacked_size": unpacked}
 
 
@@ -88,7 +88,7 @@ def build() -> dict:
     manifest = {
         "format": MANIFEST_FORMAT,
         "version": 1,
-        "runtime": entry(runtime_tag, runtime_file, unpacked, version=version, commit=info["commit"],
+        "runtime": entry(runtime_tag, runtime_file, unpacked, version=version, series=info.get("series", 1), commit=info["commit"],
                          python=info["python"], arch=info["arch"], tag=runtime_tag),
         "model": entry(model_tag, model_file, _tree_size(model_dir), name=slug, tag=model_tag),
     }
@@ -137,12 +137,12 @@ def publish(manifest: dict) -> None:
        "--title", f"Runtime {runtime['version']}",
        "--notes", f"Playalong runtime {runtime['version']} (commit {runtime['commit']}, Python {runtime['python']}, "
                   f"Apple Silicon). The app downloads and updates it; see the README's Portable runtime section.")
-    if _assets(LATEST) is None:
-        gh("release", "create", LATEST, str(OUT / MANIFEST), "--latest=false", "--target", commit,
-           "--title", "Runtime: latest", "--notes", "Points the app at the newest runtime (manifest.json).")
+    if _assets(UPDATES) is None:
+        gh("release", "create", UPDATES, str(OUT / MANIFEST), "--latest=false", "--target", commit,
+           "--title", "Updates", "--notes", "What the app checks for updates: manifest.json (runtime) and latest.json (app).")
     else:
-        gh("release", "upload", LATEST, str(OUT / MANIFEST), "--clobber")
-    print(f"Published runtime {runtime['version']}; manifest at {url(LATEST, MANIFEST)}")
+        gh("release", "upload", UPDATES, str(OUT / MANIFEST), "--clobber")
+    print(f"Published runtime {runtime['version']}; manifest at {url(UPDATES, MANIFEST)}")
 
 
 def main() -> None:

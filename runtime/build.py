@@ -23,6 +23,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 NAME = "Playalong Runtime"
+# Bumped when the playalong code needs a dependency older runtimes lack; the app asks for its series.
+SERIES = 1
 TOOLS = ("ffmpeg", "ffprobe", "deno")
 SYSTEM = ("/usr/lib/", "/System/")
 
@@ -152,7 +154,7 @@ def _version() -> dict:
     commit = run("git", "rev-parse", "--short", "HEAD", cwd=ROOT).strip()
     dirty = bool(run("git", "status", "--porcelain", "--untracked-files=no", cwd=ROOT).strip())
     today = datetime.date.today()
-    return {"version": f"{today:%Y.%m.%d}", "commit": commit + ("-dirty" if dirty else ""),
+    return {"version": f"{today:%Y.%m.%d}", "series": SERIES, "commit": commit + ("-dirty" if dirty else ""),
             "python": platform.python_version(), "arch": platform.machine(), "built": today.isoformat()}
 
 
