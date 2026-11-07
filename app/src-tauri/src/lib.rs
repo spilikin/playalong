@@ -1,3 +1,4 @@
+mod maker;
 mod runtime;
 mod song;
 
@@ -10,13 +11,17 @@ use crate::song::OpenedSong;
 
 /// Opens a song folder (or its `.playalong` file) and lets the web view play audio from that folder
 /// only, through the asset protocol.
-#[tauri::command]
-fn open_song(app: AppHandle, path: String) -> Result<OpenedSong, String> {
+pub(crate) fn open_folder(app: &AppHandle, path: &str) -> Result<OpenedSong, String> {
     let opened = song::open(&PathBuf::from(path))?;
     app.asset_protocol_scope()
         .allow_directory(&opened.folder, true)
         .map_err(|e| format!("can't give the player access to {}: {e}", opened.folder.display()))?;
     Ok(opened)
+}
+
+#[tauri::command]
+fn open_song(app: AppHandle, path: String) -> Result<OpenedSong, String> {
+    open_folder(&app, &path)
 }
 
 /// A song to open at launch: `Playalong <folder> [--at SECONDS]`, where `--at` is a time in the song.
@@ -49,7 +54,15 @@ fn launch_args() -> Launch {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![open_song, launch_args])
+        .manage(maker::Maker::default())
+        .invoke_handler(tauri::generate_handler![
+            open_song,
+            launch_args,
+            maker::runtime_status,
+            maker::runtime_check,
+            maker::runtime_install,
+            maker::make_song
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

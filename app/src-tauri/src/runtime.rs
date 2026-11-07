@@ -110,9 +110,6 @@ impl Plan {
     pub fn download_size(&self) -> u64 {
         self.runtime.iter().chain(self.model.iter()).map(|a| a.size).sum()
     }
-    pub fn is_empty(&self) -> bool {
-        self.runtime.is_none() && self.model.is_none()
-    }
 }
 
 pub fn plan(installed: Option<&Installed>, manifest: &Manifest) -> Result<Plan, String> {
@@ -240,9 +237,15 @@ pub fn fetch(archive: &Archive, to: &Path, progress: impl FnMut(u64)) -> Result<
 }
 
 /// Run `bin/playalong` from the runtime, passing each line it prints (progress bars split on `\r`).
-pub fn run_cli(runtime: &Path, args: &[String], mut line: impl FnMut(&str)) -> Result<(), String> {
+pub fn run_cli(
+    runtime: &Path,
+    args: &[String],
+    env: &[(&str, &Path)],
+    mut line: impl FnMut(&str),
+) -> Result<(), String> {
     let mut child = Command::new(runtime.join("bin").join("playalong"))
         .args(args)
+        .envs(env.iter().map(|(k, v)| (*k, *v)))
         .env("PYTHONUNBUFFERED", "1")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -312,7 +315,7 @@ mod tests {
         let m = manifest("2026.11.07", "sw");
         assert_eq!(plan(None, &m).unwrap().download_size(), 490);
         let same = installed_as("2026.11.07", Some("sw"));
-        assert!(plan(Some(&same), &m).unwrap().is_empty());
+        assert_eq!(plan(Some(&same), &m).unwrap().download_size(), 0);
         let older = installed_as("2026.10.01", Some("sw"));
         let p = plan(Some(&older), &m).unwrap();
         assert_eq!((p.runtime.is_some(), p.model.is_none()), (true, true));
@@ -426,9 +429,9 @@ mod tests {
         fs::write(&script, "#!/bin/sh\nprintf 'one\\n10%%\\r20%%\\nDone: /lib/song\\n'\n[ \"$1\" = fail ] && { echo 'Traceback' >&2; echo 'No such video' >&2; exit 1; }\nexit 0\n").unwrap();
         fs::set_permissions(&script, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
         let mut lines = vec![];
-        run_cli(dir.path(), &["ok".into()], |l| lines.push(l.to_string())).unwrap();
+        run_cli(dir.path(), &["ok".into()], &[], |l| lines.push(l.to_string())).unwrap();
         assert_eq!(lines, ["one", "10%", "20%", "Done: /lib/song"]);
         assert_eq!(finished_folder(&lines[3]), Some(PathBuf::from("/lib/song")));
-        assert_eq!(run_cli(dir.path(), &["fail".into()], |_| {}).unwrap_err(), "No such video");
+        assert_eq!(run_cli(dir.path(), &["fail".into()], &[], |_| {}).unwrap_err(), "No such video");
     }
 }
