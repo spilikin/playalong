@@ -6,6 +6,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime};
 
 use serde::Serialize;
@@ -20,6 +21,9 @@ const DOWNLOADER_EVERY: Duration = Duration::from_secs(24 * 60 * 60);
 #[derive(Default)]
 pub struct Maker {
     busy: Mutex<Option<String>>,
+    /// The CLI making a song right now, and whether the user stopped it.
+    child: Mutex<Option<u32>>,
+    stopped: AtomicBool,
 }
 
 /// Held while one long job runs; dropping it frees the maker.
@@ -161,6 +165,7 @@ pub async fn make_song(app: AppHandle, source: String, library: String, transpos
     let folder = tauri::async_runtime::spawn_blocking(move || -> Result<PathBuf, String> {
         let maker = handle.state::<Maker>();
         let _busy = maker.begin("making a song")?;
+        maker.stopped.store(false, Ordering::SeqCst);
         let runtime_dir = root.join("runtime");
         if runtime::installed(&runtime_dir).is_none() {
             return Err("The runtime isn't set up yet".into());
@@ -171,7 +176,7 @@ pub async fn make_song(app: AppHandle, source: String, library: String, transpos
         let env = [("PLAYALONG_CODE", code.as_path())];
         let update_downloader = || {
             emit("Checking for a newer YouTube downloader");
-            let _ = runtime::run_cli(&runtime_dir, &["update-downloader".to_string()], &env, emit);
+            let _ = runtime::run_cli(&runtime_dir, &["update-downloader".to_string()], &env, |_| {}, emit);
             let _ = std::fs::write(root.join(DOWNLOADER_STAMP), b"");
         };
         let youtube = is_url(&source);
@@ -183,7 +188,8 @@ pub async fn make_song(app: AppHandle, source: String, library: String, transpos
         let args = cli_args(&source, &library, transpose);
         let mut done = None;
         let mut run = || {
-            runtime::run_cli(&runtime_dir, &args, &env, |line| {
+            let started = |pid| *maker.child.lock().unwrap() = Some(pid);
+            runtime::run_cli(&runtime_dir, &args, &env, started, |line| {
                 if let Some(folder) = runtime::finished_folder(line) {
                     done = Some(folder);
                 }
@@ -191,7 +197,9 @@ pub async fn make_song(app: AppHandle, source: String, library: String, transpos
             })
         };
         let mut result = run();
+        let stopped = || maker.stopped.load(Ordering::SeqCst);
         if let Err(reason) = &result
+            && !stopped()
             && youtube
             && !updated
             && worth_new_downloader(reason)
@@ -200,12 +208,39 @@ pub async fn make_song(app: AppHandle, source: String, library: String, transpos
             update_downloader();
             result = run();
         }
+        *maker.child.lock().unwrap() = None;
+        if stopped() {
+            return Err("Stopped".into());
+        }
         result?;
         done.ok_or_else(|| "The runtime finished without a song".to_string())
     })
     .await
     .map_err(|e| e.to_string())??;
     crate::open_folder(&app, &folder.to_string_lossy())
+}
+
+#[tauri::command]
+pub fn cancel_make(maker: State<'_, Maker>) {
+    maker.stopped.store(true, Ordering::SeqCst);
+    if let Some(pid) = *maker.child.lock().unwrap() {
+        runtime::stop(pid);
+    }
+}
+
+/// `~/Music/Playalong`, where the app keeps the songs it makes.
+#[tauri::command]
+pub fn default_library(app: AppHandle) -> Result<String, String> {
+    let music = app.path().audio_dir().map_err(|e| format!("can't find the Music folder: {e}"))?;
+    Ok(music.join("Playalong").to_string_lossy().into_owned())
+}
+
+/// The library's songs, with their covers made readable for the web view.
+#[tauri::command]
+pub fn list_library(app: AppHandle, library: String) -> Vec<crate::library::LibrarySong> {
+    let library = PathBuf::from(library);
+    let _ = app.asset_protocol_scope().allow_directory(&library, true);
+    crate::library::list(&library)
 }
 
 #[cfg(test)]

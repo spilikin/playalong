@@ -1,3 +1,4 @@
+mod library;
 mod maker;
 mod runtime;
 mod song;
@@ -61,7 +62,10 @@ pub fn run() {
             maker::runtime_status,
             maker::runtime_check,
             maker::runtime_install,
-            maker::make_song
+            maker::make_song,
+            maker::cancel_make,
+            maker::default_library,
+            maker::list_library
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

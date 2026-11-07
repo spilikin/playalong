@@ -237,10 +237,12 @@ pub fn fetch(archive: &Archive, to: &Path, progress: impl FnMut(u64)) -> Result<
 }
 
 /// Run `bin/playalong` from the runtime, passing each line it prints (progress bars split on `\r`).
+/// `started` gets its process id, for `stop`.
 pub fn run_cli(
     runtime: &Path,
     args: &[String],
     env: &[(&str, &Path)],
+    started: impl FnOnce(u32),
     mut line: impl FnMut(&str),
 ) -> Result<(), String> {
     let mut child = Command::new(runtime.join("bin").join("playalong"))
@@ -252,6 +254,7 @@ pub fn run_cli(
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| format!("can't start the runtime: {e}"))?;
+    started(child.id());
     let stderr = child.stderr.take().expect("piped");
     let errors = std::thread::spawn(move || {
         let mut text = String::new();
@@ -277,6 +280,11 @@ pub fn run_cli(
     // The CLI ends with a one-line reason (SystemExit); a traceback's last line says the most.
     let reason = errors.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("the runtime stopped");
     Err(reason.trim().to_string())
+}
+
+/// End a CLI that `run_cli` started; it then returns an error.
+pub fn stop(pid: u32) {
+    let _ = Command::new("/bin/kill").arg(pid.to_string()).status();
 }
 
 /// The song folder `playalong run` finished, from its closing "Done: <folder>" line.
@@ -421,6 +429,19 @@ mod tests {
     }
 
     #[test]
+    fn a_running_cli_can_be_stopped() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join("bin");
+        fs::create_dir_all(&bin).unwrap();
+        let script = bin.join("playalong");
+        fs::write(&script, "#!/bin/sh\necho started\nexec sleep 30\n").unwrap();
+        fs::set_permissions(&script, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+        let started = std::time::Instant::now();
+        let result = run_cli(dir.path(), &[], &[], stop, |_| {});
+        assert!(result.is_err() && started.elapsed().as_secs() < 10);
+    }
+
+    #[test]
     fn the_cli_runs_with_its_lines_passed_on_and_its_reason_when_it_fails() {
         let dir = tempfile::tempdir().unwrap();
         let bin = dir.path().join("bin");
@@ -429,9 +450,9 @@ mod tests {
         fs::write(&script, "#!/bin/sh\nprintf 'one\\n10%%\\r20%%\\nDone: /lib/song\\n'\n[ \"$1\" = fail ] && { echo 'Traceback' >&2; echo 'No such video' >&2; exit 1; }\nexit 0\n").unwrap();
         fs::set_permissions(&script, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
         let mut lines = vec![];
-        run_cli(dir.path(), &["ok".into()], &[], |l| lines.push(l.to_string())).unwrap();
+        run_cli(dir.path(), &["ok".into()], &[], |_| {}, |l| lines.push(l.to_string())).unwrap();
         assert_eq!(lines, ["one", "10%", "20%", "Done: /lib/song"]);
         assert_eq!(finished_folder(&lines[3]), Some(PathBuf::from("/lib/song")));
-        assert_eq!(run_cli(dir.path(), &["fail".into()], &[], |_| {}).unwrap_err(), "No such video");
+        assert_eq!(run_cli(dir.path(), &["fail".into()], &[], |_| {}, |_| {}).unwrap_err(), "No such video");
     }
 }
