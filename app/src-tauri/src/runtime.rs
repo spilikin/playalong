@@ -13,8 +13,9 @@ use std::process::{Command, Stdio};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-pub const MANIFEST_URL: &str =
-    "https://github.com/spilikin/playalong/releases/download/runtime-latest/manifest.json";
+pub const MANIFEST_URL: &str = "https://github.com/spilikin/playalong/releases/download/updates/manifest.json";
+/// The runtime series this app's Python code runs on (runtime/build.py's SERIES).
+pub const RUNTIME_SERIES: u64 = 1;
 const MANIFEST_FORMAT: &str = "playalong-runtime-manifest";
 const MANIFEST_VERSION: u64 = 1;
 const MODELS: &str = "models";
@@ -33,6 +34,8 @@ pub struct Archive {
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub struct RuntimeEntry {
     pub version: String,
+    #[serde(default = "first_series")]
+    pub series: u64,
     pub commit: String,
     #[serde(flatten)]
     pub archive: Archive,
@@ -67,10 +70,15 @@ impl Manifest {
     }
 }
 
+fn first_series() -> u64 {
+    1
+}
+
 /// What is installed: the runtime's version and which model sits in it.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct Installed {
     pub version: String,
+    pub series: u64,
     pub commit: String,
     pub model: Option<String>,
 }
@@ -84,6 +92,7 @@ pub fn installed(dir: &Path) -> Option<Installed> {
         .map(|e| e.file_name().to_string_lossy().into_owned());
     Some(Installed {
         version: info.get("version")?.as_str()?.to_string(),
+        series: info.get("series").and_then(|v| v.as_u64()).unwrap_or(1),
         commit: info.get("commit")?.as_str()?.to_string(),
         model,
     })
@@ -106,14 +115,18 @@ impl Plan {
     }
 }
 
-pub fn plan(installed: Option<&Installed>, manifest: &Manifest) -> Plan {
-    let runtime_current = installed.is_some_and(|i| i.version == manifest.runtime.version);
+pub fn plan(installed: Option<&Installed>, manifest: &Manifest) -> Result<Plan, String> {
+    if manifest.runtime.series > RUNTIME_SERIES {
+        return Err("This runtime needs a newer Playalong; update the app first".into());
+    }
+    let runtime_current = installed
+        .is_some_and(|i| i.version == manifest.runtime.version && i.series == RUNTIME_SERIES);
     let model_current = installed.is_some_and(|i| i.model.as_deref() == Some(manifest.model.name.as_str()));
-    Plan {
+    Ok(Plan {
         runtime: (!runtime_current).then(|| manifest.runtime.archive.clone()),
         model: (!model_current).then(|| manifest.model.archive.clone()),
         version: manifest.runtime.version.clone(),
-    }
+    })
 }
 
 /// Copy `from` into `to`, checking its sha256 and reporting bytes done as it goes.
@@ -280,27 +293,59 @@ mod tests {
         Manifest {
             format: MANIFEST_FORMAT.into(),
             version: 1,
-            runtime: RuntimeEntry { version: version.into(), commit: "abc".into(), archive: archive("rt", 150) },
+            runtime: RuntimeEntry {
+                version: version.into(),
+                series: RUNTIME_SERIES,
+                commit: "abc".into(),
+                archive: archive("rt", 150),
+            },
             model: ModelEntry { name: model.into(), archive: archive("model", 340) },
         }
     }
 
     fn installed_as(version: &str, model: Option<&str>) -> Installed {
-        Installed { version: version.into(), commit: "abc".into(), model: model.map(String::from) }
+        Installed { version: version.into(), series: RUNTIME_SERIES, commit: "abc".into(), model: model.map(String::from) }
     }
 
     #[test]
     fn a_first_install_fetches_both_an_update_only_what_changed() {
         let m = manifest("2026.11.07", "sw");
-        assert_eq!(plan(None, &m).download_size(), 490);
+        assert_eq!(plan(None, &m).unwrap().download_size(), 490);
         let same = installed_as("2026.11.07", Some("sw"));
-        assert!(plan(Some(&same), &m).is_empty());
+        assert!(plan(Some(&same), &m).unwrap().is_empty());
         let older = installed_as("2026.10.01", Some("sw"));
-        let p = plan(Some(&older), &m);
+        let p = plan(Some(&older), &m).unwrap();
         assert_eq!((p.runtime.is_some(), p.model.is_none()), (true, true));
         let other_model = installed_as("2026.11.07", Some("old"));
-        let p = plan(Some(&other_model), &m);
+        let p = plan(Some(&other_model), &m).unwrap();
         assert_eq!((p.runtime.is_none(), p.model.is_some()), (true, true));
+    }
+
+    #[test]
+    fn a_newer_series_asks_for_an_app_update() {
+        let mut m = manifest("2026.11.07", "sw");
+        m.runtime.series = RUNTIME_SERIES + 1;
+        assert!(plan(None, &m).unwrap_err().contains("newer Playalong"));
+    }
+
+    #[test]
+    fn an_older_series_is_replaced() {
+        let m = manifest("2026.11.07", "sw");
+        let mut old = installed_as("2026.11.07", Some("sw"));
+        old.series = RUNTIME_SERIES - 1;
+        assert!(plan(Some(&old), &m).unwrap().runtime.is_some());
+    }
+
+    #[test]
+    fn leftover_staging_is_cleared() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        fs::create_dir_all(root.join(STAGING)).unwrap();
+        fs::write(root.join(STAGING).join("junk"), "x").unwrap();
+        let rt = tar_zst(root, "rt", &[("runtime.json", r#"{"version":"1","commit":"abc"}"#)]);
+        install(root, Some(&rt), None).unwrap();
+        assert!(!root.join(STAGING).exists());
+        assert!(!root.join("runtime").join("junk").exists());
     }
 
     #[test]
