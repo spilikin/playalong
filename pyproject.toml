@@ -3,7 +3,7 @@ name = "playalong"
 version = "0.1.0"
 description = "Download songs from YouTube and split them into guitar playalong tracks"
 readme = "README.md"
-license = "MIT"
+license = "GPL-3.0-or-later"
 authors = [
     { name = "Sergej Suskov" }
 ]
@@ -11,6 +11,7 @@ requires-python = ">=3.12"
 dependencies = [
     "bs-roformer-infer>=0.1.5",
     "numpy>=1.26.4",
+    "pedalboard>=0.9.26",
     "soundfile>=0.14.0",
     "yt-dlp>=2026.8.19",
     "yt-dlp-ejs>=0.8.0",

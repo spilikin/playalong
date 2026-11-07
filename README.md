@@ -74,7 +74,7 @@ uv run playalong mix library/some-song -g guitar=-20 -g vocals=-6 --name quiet-g
 
 `run` and `mix` render the first four (the ones the player shows first) unless told which; `--all`
 renders every preset. `--tempo` time-stretches without changing pitch (0.5–2.0); `--transpose`
-(`-k`) moves the pitch by up to an octave either way without changing the tempo. Both show in the file
+(`-k`) moves the pitch by up to an octave either way without changing the tempo. Both use Rubber Band. Both show in the file
 name: `<song> - no-guitar -2 @80%.mp3`.
 
 ## Chords
@@ -224,4 +224,6 @@ cd ui && npm test && npx svelte-check     # timing, count-in, sheet, mixes, them
 
 ## License
 
-MIT, see [LICENSE](LICENSE).
+Copyright © 2026 Sergej Suskov. GPL-3.0-or-later, see [LICENSE](LICENSE): tempo changes and
+transposing use [Rubber Band](https://breakfastquay.com/rubberband/) through
+[pedalboard](https://github.com/spotify/pedalboard), both GPL.
