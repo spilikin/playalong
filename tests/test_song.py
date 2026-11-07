@@ -72,7 +72,7 @@ def test_it_describes_the_song_its_timing_and_files(tmp_path):
         {"file": "mixes/artist-song - quiet-guitar.flac", "name": "quiet-guitar", "tempo": 1.0, "transpose": 0,
          **unknown},
     ]
-    assert song["garageband"] == {"folder": "mixes/artist-song - GarageBand 120 BPM", "bpm": 120}
+    assert song["garageband"] == {"folder": "mixes/artist-song - GarageBand 120 BPM", "bpm": 120, "transpose": 0}
     assert song["cover"] is None
     assert song["chord_sheet"] is None  # no chords.html in this folder
 

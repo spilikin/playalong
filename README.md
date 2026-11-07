@@ -28,7 +28,8 @@ The model weights (~700 MB) download to `~/.cache/bs-roformer-infer` on first us
 ## Usage
 
 ```sh
-# everything in one go: download, album cover, separate, the four main mixes, chords and the song file
+# everything in one go: download, album cover, separate, the four main mixes, GarageBand stems, chords and
+# the song file (--no-garageband skips the stems)
 uv run playalong run "https://www.youtube.com/watch?v=..."
 
 # age-restricted videos need your YouTube login: the default browser's is used when YouTube asks
@@ -134,7 +135,9 @@ Steps that don't detect chords keep the ones already in the file.
 uv run playalong mix library/some-song --garageband
 ```
 
-also writes `mixes/<song> - GarageBand <tempo> BPM/` with one WAV per stem (intro cut, no count-in).
+also writes `mixes/<song> - GarageBand <tempo> BPM/` with one WAV per stem (intro cut, no count-in);
+`run` does this unless given `--no-garageband`. With `--transpose -2` the stems are transposed too and the
+folder ends in ` -2`.
 In GarageBand choose File > New > Empty Project, set the tempo shown, and drag all six files into
 the empty area below the tracks: each gets its own track, and the song's first beat sits on bar 2,
 so GarageBand's metronome and count-in match the song. The stems share one gain, so the tracks

@@ -65,7 +65,7 @@ def _chord_data(result: ChordResult) -> dict:
 
 
 MIX_NAME = re.compile(r" - (?P<name>.+?)(?: (?P<semitones>[+-]\d{1,2}))?(?: @(?P<percent>\d+)%)?$")
-GARAGEBAND = re.compile(r" - GarageBand(?: (?P<bpm>\d+) BPM)?$")
+GARAGEBAND = re.compile(r" - GarageBand(?: (?P<bpm>\d+) BPM)?(?: (?P<semitones>[+-]\d{1,2}))?$")
 
 
 def _files(track_dir: Path) -> dict:
@@ -83,7 +83,8 @@ def _files(track_dir: Path) -> dict:
         for p in sorted(mixes_dir.iterdir()):
             if p.is_dir():
                 if m := GARAGEBAND.search(p.name):
-                    garageband = {"folder": rel(p), "bpm": int(m["bpm"]) if m["bpm"] else None}
+                    garageband = {"folder": rel(p), "bpm": int(m["bpm"]) if m["bpm"] else None,
+                                  "transpose": int(m["semitones"] or 0)}
             elif p.suffix in (".mp3", ".wav", ".flac") and (m := MIX_NAME.search(p.stem)):
                 tempo = int(m["percent"]) / 100 if m["percent"] else 1.0
                 # Timing is only known for mixes rendered since mixes.json existed; older ones get nulls.
