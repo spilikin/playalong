@@ -22,6 +22,8 @@ def fake_runtime(root: Path) -> Path:
     (rt / "models" / "sw").mkdir(parents=True)
     (rt / "models" / "sw" / "w.ckpt").write_bytes(b"weights" * 100)
     (rt / "downloader").mkdir()
+    (rt / "pycache").mkdir()
+    (rt / "pycache" / "x.pyc").write_bytes(b"")
     (rt / "runtime.json").write_text(json.dumps(
         {"version": "2026.11.07", "series": 1, "commit": "abc1234", "python": "3.12.14", "arch": "arm64"}))
     return rt
@@ -51,7 +53,7 @@ def test_manifest_names_both_archives_with_checksums(tmp_path, monkeypatch):
         assert entry["sha256"] == hashlib.sha256(path.read_bytes()).hexdigest()
         assert entry["size"] == path.stat().st_size
     names = members(tmp_path / "release" / runtime["file"])
-    assert "bin/playalong" in names and not any(n.startswith(("models", "downloader")) for n in names)
+    assert "bin/playalong" in names and not any(n.startswith(("models", "downloader", "pycache")) for n in names)
     assert members(tmp_path / "release" / model["file"]) == ["models", "models/sw", "models/sw/w.ckpt"]
     assert json.loads((tmp_path / "release" / "manifest.json").read_text()) == manifest
 

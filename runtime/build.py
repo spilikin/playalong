@@ -34,10 +34,14 @@ here="$(cd "$(dirname "$0")/.." && pwd -P)"
 export PATH="$here/bin:$PATH"
 export BS_ROFORMER_MODELS_PATH="$here/models"
 export PLAYALONG_RUNTIME="$here"
-# downloader/ comes first: `playalong update-downloader` puts a newer yt-dlp there.
+# Import order: a newer yt-dlp from `playalong update-downloader`, then the app's own playalong code
+# (PLAYALONG_CODE, set by the app so its song files and the CLI always match), then the runtime's.
 exec "$here/python/bin/python3" -I -c '
 import os, sys
-sys.path.insert(0, os.path.join(os.environ["PLAYALONG_RUNTIME"], "downloader"))
+code = os.environ.get("PLAYALONG_CODE")
+# Bytecode goes to the runtime, never next to the code: the app bundle has to stay as it was signed.
+sys.pycache_prefix = os.path.join(os.environ["PLAYALONG_RUNTIME"], "pycache")
+sys.path[0:0] = [os.path.join(os.environ["PLAYALONG_RUNTIME"], "downloader"), *([code] if code else [])]
 sys.argv[0] = "playalong"
 from playalong import main
 main()' "$@"

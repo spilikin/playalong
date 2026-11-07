@@ -25,8 +25,9 @@ OUT = ROOT / "dist" / "release"
 UPDATES = "updates"  # rolling release with what the app polls
 MANIFEST = "manifest.json"
 MANIFEST_FORMAT = "playalong-runtime-manifest"
-# Left out of the runtime archive: the model has its own, and downloader/ is a local update.
-SEPARATE = ("models", "downloader")
+# Left out of the runtime archive: the model has its own, downloader/ is a local update, and pycache/
+# holds bytecode the runtime writes for itself.
+SEPARATE = ("models", "downloader", "pycache")
 
 
 def url(tag: str, name: str) -> str:
