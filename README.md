@@ -201,6 +201,10 @@ other packages are about 210 MB, deno 125 MB, ffmpeg and its libraries 40 MB. A 
 AirDrop or downloaded in a browser is quarantined by macOS; clear that once with
 `xattr -dr com.apple.quarantine "Playalong Runtime"`.
 
+YouTube changes often and yt-dlp keeps up within days, so the downloader updates on its own:
+`playalong update-downloader` puts the newest yt-dlp and yt-dlp-ejs into the runtime's `downloader/`
+folder, ahead of the ones it came with. A download that fails for any reason other than a login says so.
+
 ## Player app
 
 A small macOS app (Tauri 2 + Svelte, in `app/`) that opens a song made by the CLI and plays one of its

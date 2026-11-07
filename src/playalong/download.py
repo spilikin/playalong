@@ -80,6 +80,11 @@ def _info(url: str, browser: str | None) -> dict:
         return ydl.extract_info(url, download=False)
 
 
+# YouTube changes often and yt-dlp catches up within days.
+UPDATE_HINT = ("If this video plays on YouTube, the downloader may be out of date: `playalong update-downloader` "
+               "gets the newest.")
+
+
 def fetch(url: str, library: Path, browser: str | None = None) -> Path:
     """Download the audio of a YouTube URL into its own track directory as source.wav.
 
@@ -90,8 +95,10 @@ def fetch(url: str, library: Path, browser: str | None = None) -> Path:
         info = _info(url, browser)
     except DownloadError as e:
         message = _brief(e)
-        if browser or not _needs_login(message):
-            raise SystemExit(f"{message}\n{_login_help(browser)}" if browser and _needs_login(message) else message) from e
+        if browser and _needs_login(message):
+            raise SystemExit(f"{message}\n{_login_help(browser)}") from e
+        if not _needs_login(message):
+            raise SystemExit(f"{message}\n{UPDATE_HINT}") from e
         browser = default_browser()
         if browser is None:
             raise SystemExit(f"{message}\nYouTube wants a signed-in account for this video: sign in to YouTube in "

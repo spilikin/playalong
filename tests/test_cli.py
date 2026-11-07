@@ -102,3 +102,11 @@ def test_transpose_is_a_mix_option_within_an_octave(tmp_path):
     assert parse(["run", "https://youtu.be/x", "--transpose", "3"]).transpose == 3
     with pytest.raises(SystemExit, match="--transpose"):
         main(["mix", str(tmp_path), "--transpose", "13"])
+
+
+def test_updating_the_downloader_needs_the_portable_runtime(monkeypatch):
+    from playalong.cli import main
+
+    monkeypatch.delenv("PLAYALONG_RUNTIME", raising=False)
+    with pytest.raises(SystemExit, match="uv lock --upgrade-package yt-dlp"):
+        main(["update-downloader"])

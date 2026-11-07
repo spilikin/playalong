@@ -158,6 +158,8 @@ def build_parser() -> argparse.ArgumentParser:
     cov.add_argument("--force", action="store_true", help="replace the cover the track has")
 
     sub.add_parser("presets", help="list mix presets")
+    sub.add_parser("update-downloader", help="get the newest yt-dlp when YouTube downloads stop working "
+                                             "(portable runtime)")
     return parser
 
 
@@ -167,6 +169,12 @@ def main(argv: list[str] | None = None) -> None:
     if args.command == "presets":
         for name in PRESETS:
             print(f"{name:16} {PRESET_HELP[name]}")
+        return
+
+    if args.command == "update-downloader":
+        from playalong.runtime import update_downloader
+
+        update_downloader()
         return
 
     from playalong.cover import fetch_cover
