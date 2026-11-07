@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+import soundfile as sf
 
 from playalong.mix import PEAK_CEILING, PRESETS, parse_gain, render, trim
 from playalong.separate import STEMS
@@ -103,3 +104,34 @@ def test_place_beat_cuts_music_that_would_come_before_time_zero():
     music[int(8.0 * rate)] = 0.5
     out = place_beat(music, rate, start=3.0, beat=8.0, at=2.0)
     assert np.flatnonzero(out[:, 0] == 0.5)[0] == 2000
+
+
+def test_atempo_is_chained_below_its_lowest_speed():
+    from playalong.mix import _atempo
+
+    assert _atempo(0.8) == ["atempo=0.800000"]
+    assert _atempo(0.3) == ["atempo=0.5", "atempo=0.600000"]
+    assert _atempo(0.2) == ["atempo=0.5", "atempo=0.5", "atempo=0.800000"]
+
+
+def test_transposing_moves_the_pitch_and_keeps_the_length(tmp_path):
+    from playalong.mix import write
+
+    rate = 44100
+    t = np.arange(rate * 3) / rate
+    tone = (0.3 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)
+    dest = write(np.stack([tone, tone], axis=1), rate, tmp_path / "up.wav", transpose=2)
+    out, sr = sf.read(dest)
+    assert sr == rate and len(out) == pytest.approx(len(tone), abs=rate * 0.02)
+    middle = out[rate: 2 * rate, 0]
+    peak = np.argmax(np.abs(np.fft.rfft(middle))) * rate / len(middle)
+    assert peak == pytest.approx(440 * 2 ** (2 / 12), abs=3)
+
+
+def test_transposing_down_at_half_speed_still_works(tmp_path):
+    from playalong.mix import write
+
+    rate = 44100
+    tone = np.zeros((rate * 2, 2), np.float32)
+    out, _ = sf.read(write(tone, rate, tmp_path / "down.wav", tempo=0.5, transpose=-12))
+    assert len(out) == pytest.approx(rate * 4, abs=rate * 0.05)

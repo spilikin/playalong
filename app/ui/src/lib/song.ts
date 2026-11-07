@@ -20,6 +20,8 @@ export interface Mix {
   file: string;
   name: string;
   tempo: number;
+  /** Semitones the mix is moved by; missing in song files written before mixes could be transposed. */
+  transpose?: number;
   /** Song time at the start of the mix; null for mixes rendered before the CLI recorded it. */
   source_offset: number | null;
   count_in: CountIn | null;
@@ -53,6 +55,8 @@ export interface Song {
   chords: ChordSpan[] | null;
   chord_shapes: Record<string, Shape>;
   mixes: Mix[];
+  /** Per transposed mix ("-2", "+3"): the key and every chord name moved, with shapes in chord_shapes. */
+  transpositions?: Record<string, { key: string; chords: Record<string, string> }>;
   audio: { file: string; sample_rate: number; duration: number } | null;
   /** Missing in song files written before the CLI fetched covers. */
   cover?: { file: string; source: string | null; album: string | null } | null;
@@ -62,6 +66,25 @@ export interface OpenedSong {
   folder: string;
   file: string;
   song: Song;
+}
+
+const signed = (n: number) => (n > 0 ? `+${n}` : String(n));
+
+/** The song as heard in `mix`: a transposed mix gets the key and chord names moved with it. */
+export function forMix(song: Song, mix: Mix | undefined): Song {
+  const moved = mix?.transpose ? song.transpositions?.[signed(mix.transpose)] : undefined;
+  if (!moved) return song;
+  const rename = (name: string) => moved.chords[name] ?? name;
+  return {
+    ...song,
+    key: moved.key,
+    chords:
+      song.chords?.map((c) => {
+        if (c.name === 'N') return c;
+        const name = rename(c.name);
+        return { ...c, name, root: c.quality === 'minor' ? name.slice(0, -1) : name };
+      }) ?? null,
+  };
 }
 
 function offset(mix: Mix, song: Song): number {
@@ -121,7 +144,7 @@ export function countAt(mix: Mix, mixSeconds: number): CountState {
 
 const extension = (file: string) => file.split('.').pop()?.toLowerCase() ?? '';
 
-/** Full speed first, MP3 over WAV, and the guide mix: the whole song with the guitar faint, to play along to. */
+/** The original key and full speed first, MP3 over WAV, and the guide mix: the whole song with the guitar faint, to play along to. */
 export function defaultMix(mixes: Mix[]): Mix | undefined {
   const score = (m: Mix) => rank(m) + (m.name === 'guide' ? 0 : 1);
   return [...mixes].sort((a, b) => score(a) - score(b))[0];
@@ -130,9 +153,9 @@ export function defaultMix(mixes: Mix[]): Mix | undefined {
 /** The mixes the CLI renders by default, in the order the tray shows them (keys 1–4). */
 export const MAIN_MIXES = ['original', 'guide', 'no-guitar', 'vocals-only'];
 
-const rank = (m: Mix) => (m.tempo === 1 ? 0 : 4) + (extension(m.file) === 'mp3' ? 0 : 2);
+const rank = (m: Mix) => (m.transpose ? 8 : 0) + (m.tempo === 1 ? 0 : 4) + (extension(m.file) === 'mp3' ? 0 : 2);
 
-/** One of each main mix (full speed MP3 where there's a choice), in order; every other mix after. */
+/** One of each main mix (original key, full speed MP3 where there's a choice), in order; every other mix after. */
 export function groupMixes(mixes: Mix[], s: Strings = STRINGS.en): { main: Mix[]; more: Mix[] } {
   const main = MAIN_MIXES.flatMap((name) => {
     const found = mixes.filter((m) => m.name === name).sort((a, b) => rank(a) - rank(b));
@@ -152,6 +175,7 @@ export function mixLabel(mix: Mix, s: Strings = STRINGS.en): string {
   // Custom mixes are named on the command line, so they keep that name.
   const words = mix.name.replace(/-/g, ' ');
   const parts = [s.mixNames[mix.name]?.[0] ?? words.charAt(0).toUpperCase() + words.slice(1)];
+  if (mix.transpose) parts.push(signed(mix.transpose).replace('-', '−'));
   if (mix.tempo !== 1) parts.push(`${Math.round(mix.tempo * 100)}%`);
   if (extension(mix.file) !== 'mp3') parts.push(extension(mix.file).toUpperCase());
   return parts.join(' · ');

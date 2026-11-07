@@ -3,6 +3,7 @@ import {
   chordLabel,
   countAt,
   defaultMix,
+  forMix,
   groupMixes,
   indexAt,
   mixLabel,
@@ -106,6 +107,39 @@ describe('mixes', () => {
       'mixes/s - original.mp3', 'mixes/s - guide.mp3', 'mixes/s - vocals-only.mp3',
     ]);
     expect(more.map((m) => m.file)).toEqual(['mixes/s - backing.mp3', 'mixes/s - guide.wav', 'mixes/s - original @80%.mp3']);
+  });
+
+  it('keeps the original key in the main slots and labels transposed mixes', () => {
+    const guide = { ...counted, file: 'mixes/s - guide.mp3', name: 'guide' };
+    const lower = { ...guide, file: 'mixes/s - guide -2.mp3', transpose: -2 };
+    expect(defaultMix([lower, guide])).toBe(guide);
+    expect(groupMixes([lower, guide]).more).toEqual([lower]);
+    expect(mixLabel(lower)).toBe('Guide · −2');
+    expect(mixLabel({ ...slow, transpose: 3 })).toBe('Backing · +3 · 80%');
+  });
+});
+
+describe('transposed mixes', () => {
+  const moved = {
+    ...song,
+    transpositions: { '-2': { key: 'Bb major', chords: { C: 'Bb', Am: 'Gm' } } },
+  };
+
+  it('show the key and chords moved with the mix', () => {
+    const shown = forMix(moved, { ...counted, transpose: -2 });
+    expect(shown.key).toBe('Bb major');
+    expect(shown.chords?.map((c) => [c.name, c.root, c.quality])).toEqual([
+      ['N', null, null],
+      ['Bb', 'Bb', 'major'],
+      ['Gm', 'G', 'minor'],
+    ]);
+    expect(shown.chords?.map((c) => c.start)).toEqual(song.chords?.map((c) => c.start));
+  });
+
+  it('leave the song as it is in the original key or without a mapping', () => {
+    expect(forMix(moved, counted)).toBe(moved);
+    expect(forMix(moved, undefined)).toBe(moved);
+    expect(forMix(song, { ...counted, transpose: 5 })).toBe(song);
   });
 });
 

@@ -67,6 +67,28 @@ def chord_name(root: int | None, quality: str | None, key: str) -> str:
     return _note_names(key)[root] + ("m" if quality == "min" else "")
 
 
+def _key_name(tonic: int, mode: str) -> str:
+    return f"{(FLATS if f'{FLATS[tonic]} {mode}' in FLAT_KEYS else SHARPS)[tonic]} {mode}"
+
+
+_PITCH = {name: i for names in (SHARPS, FLATS) for i, name in enumerate(names)}
+
+
+def transpose_key(key: str, semitones: int) -> str:
+    """'Ab major' moved by semitones, spelled the way a detected key would be."""
+    tonic, mode = key.split()
+    return _key_name((_PITCH[tonic] + semitones) % 12, mode)
+
+
+def transpose_chord(name: str, semitones: int, key: str) -> str:
+    """A chord name moved by semitones and spelled for `key`, the song's key after the move."""
+    if name == "N":
+        return name
+    minor = name.endswith("m")
+    root = _PITCH[name[:-1] if minor else name]
+    return _note_names(key)[(root + semitones) % 12] + ("m" if minor else "")
+
+
 def estimate_key(chroma: np.ndarray) -> str:
     """Best-correlating major or minor key for a 12-bin pitch-class profile."""
     best, best_r = "C major", -np.inf
@@ -74,8 +96,7 @@ def estimate_key(chroma: np.ndarray) -> str:
         for mode, profile in (("major", MAJOR_PROFILE), ("minor", MINOR_PROFILE)):
             r = np.corrcoef(chroma, np.roll(profile, tonic))[0, 1]
             if r > best_r:
-                name = (FLATS if f"{FLATS[tonic]} {mode}" in FLAT_KEYS else SHARPS)[tonic]
-                best, best_r = f"{name} {mode}", r
+                best, best_r = _key_name(tonic, mode), r
     return best
 
 
@@ -96,10 +117,8 @@ def _key_from_chords(beats_per_chord: dict[tuple[int, str], int]) -> tuple[str, 
     tonic = max(range(12), key=lambda t: sum(beats_per_chord.get(c, 0) for c in _diatonic(t)))
     relative = (tonic + 9) % 12
     if beats_per_chord.get((relative, "min"), 0) > beats_per_chord.get((tonic, "maj"), 0):
-        name = (FLATS if f"{FLATS[relative]} minor" in FLAT_KEYS else SHARPS)[relative]
-        return f"{name} minor", _diatonic(tonic)
-    name = (FLATS if f"{FLATS[tonic]} major" in FLAT_KEYS else SHARPS)[tonic]
-    return f"{name} major", _diatonic(tonic)
+        return _key_name(relative, "minor"), _diatonic(tonic)
+    return _key_name(tonic, "major"), _diatonic(tonic)
 
 
 def _mono(stems: dict[str, np.ndarray], names) -> np.ndarray:

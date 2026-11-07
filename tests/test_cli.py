@@ -74,3 +74,27 @@ def test_the_original_is_the_recording_not_the_stems(tmp_path):
         sf.write(track / "stems" / f"{name}.wav", np.zeros((44100 * 2, 2), np.float32), 44100, subtype="FLOAT")
     (written,) = make_mixes(track, ["original"], fmt="wav", start=0.0, count_in=0)
     assert np.abs(sf.read(written)[0]).max() == pytest.approx(0.2, abs=1e-3)
+
+
+def test_transposed_mixes_are_named_and_recorded_with_their_semitones(tmp_path):
+    import json
+
+    stems = tmp_path / "song" / "stems"
+    stems.mkdir(parents=True)
+    for name in ("drums", "guitar"):
+        sf.write(stems / f"{name}.wav", np.zeros((44100, 2), np.float32), 44100, subtype="FLOAT")
+    (written,) = make_mixes(tmp_path / "song", ["no-guitar"], fmt="wav", tempo=0.8, start=0.0, transpose=-2)
+    assert written.name == "song - no-guitar -2 @80%.wav"
+    index = json.loads((tmp_path / "song" / "mixes" / "mixes.json").read_text())
+    assert index[written.name]["transpose"] == -2
+
+
+def test_transpose_is_a_mix_option_within_an_octave(tmp_path):
+    from playalong.cli import main
+
+    parse = build_parser().parse_args
+    assert parse(["mix", "t"]).transpose == 0
+    assert parse(["mix", "t", "-k", "-2"]).transpose == -2
+    assert parse(["run", "https://youtu.be/x", "--transpose", "3"]).transpose == 3
+    with pytest.raises(SystemExit, match="--transpose"):
+        main(["mix", str(tmp_path), "--transpose", "13"])

@@ -51,6 +51,9 @@ uv run playalong mix library/some-song -p backing --count-in 2 --tempo 0.8
 uv run playalong mix library/some-song --bpm 92          # if the detected tempo is off
 uv run playalong mix library/some-song --no-count-in     # straight into the song
 
+# another key: up or down by semitones, tempo kept; the player shows the chords moved with it
+uv run playalong mix library/some-song -p no-guitar --transpose -2
+
 # custom mix: any stem at any gain in dB, or off
 uv run playalong mix library/some-song -g guitar=-20 -g vocals=-6 --name quiet-guitar
 ```
@@ -69,7 +72,9 @@ uv run playalong mix library/some-song -g guitar=-20 -g vocals=-6 --name quiet-g
 | `guitar-only`    | isolated guitar: study the part                     |
 
 `run` and `mix` render the first four (the ones the player shows first) unless told which; `--all`
-renders every preset. `--tempo` time-stretches without changing pitch (0.5–2.0).
+renders every preset. `--tempo` time-stretches without changing pitch (0.5–2.0); `--transpose`
+(`-k`) moves the pitch by up to an octave either way without changing the tempo. Both show in the file
+name: `<song> - no-guitar -2 @80%.mp3`.
 
 ## Chords
 
@@ -119,6 +124,7 @@ Every step writes `library/<song>/<song>.playalong`, a JSON file a player opens 
 | `chord_shapes` | per chord: `frets` and `fingers` low E to high e (`-1` muted, `0` open), `barre` fret and string positions |
 | `cover` | `cover.jpg`, where it came from (`itunes` or the `youtube` thumbnail) and the album |
 | `stems`, `mixes`, `garageband`, `chord_sheet` | where the audio and the chord sheet are |
+| `transpositions` | per transposed mix (`"-2"`): the key and every chord name moved; their shapes are in `chord_shapes` |
 
 Steps that don't detect chords keep the ones already in the file.
 
@@ -199,7 +205,8 @@ Then **Open song folder…** (or drop a folder on the window) and choose a track
 - The toolbar sits in the window's title bar: Restart and Play, the album cover with title, key,
   tempo and position, a light/dark toggle (the system's appearance until you use it), and Open.
 - The sidebar lists the four main mixes with keys 1–4 (Original, Guide, No guitar, Vocals only), then
-  any others. Switching mixes keeps your place in the song.
+  any others. Switching mixes keeps your place in the song; a transposed mix shows the key, chords and
+  shapes moved with it.
 - The chord strip stays put; only the bars scroll. Click a bar to jump there.
 - Keys: Space play/pause · ← → 5 s · Home: back to the start (count-in included) · 1–4 mixes.
 
