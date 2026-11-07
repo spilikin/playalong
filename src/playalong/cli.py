@@ -63,12 +63,15 @@ def _mix(args: argparse.Namespace, track_dir: Path) -> None:
     custom = dict(parse_gain(g) for g in args.gain) if args.gain else None
     if not 0.5 <= args.tempo <= 2.0:
         raise SystemExit("--tempo must be between 0.5 and 2.0")
+    if not -12 <= args.transpose <= 12:
+        raise SystemExit("--transpose must be between -12 and 12 semitones")
     if args.bpm is not None and not 30 <= args.bpm <= 300:
         raise SystemExit("--bpm must be between 30 and 300")
     print(f"Writing mixes for {track_dir.name}:")
     start = 0.0 if args.no_trim else args.start
     try:
-        make_mixes(track_dir, presets, custom, args.name, args.format, args.tempo, start, args.count_in, args.bpm)
+        make_mixes(track_dir, presets, custom, args.name, args.format, args.tempo, start, args.count_in, args.bpm,
+                   args.transpose)
     except ValueError as e:
         raise SystemExit(str(e)) from e
     if args.garageband:
@@ -88,6 +91,9 @@ def _add_mix_options(p: argparse.ArgumentParser) -> None:
     g.add_argument("-f", "--format", choices=["mp3", "wav", "flac"], default="mp3")
     g.add_argument("-t", "--tempo", type=float, default=1.0,
                    help="playback speed, pitch preserved (e.g. 0.8 for practice)")
+    g.add_argument("-k", "--transpose", type=int, default=0, metavar="SEMITONES",
+                   help="move the pitch up or down by semitones, tempo kept (e.g. -2); the player shows "
+                        "the chords moved too")
     count = g.add_mutually_exclusive_group()
     count.add_argument("-c", "--count-in", type=int, default=1, choices=[1, 2], metavar="BARS",
                        help="bars of drumstick clicks before the song, at its tempo: 1 or 2 (default: 1)")
@@ -96,7 +102,7 @@ def _add_mix_options(p: argparse.ArgumentParser) -> None:
     g.add_argument("--bpm", type=float,
                    help="the song's tempo for --count-in, if detection gets it wrong (saved for the track)")
     g.add_argument("--garageband", action="store_true",
-                   help="also write the stems for a GarageBand project (no count-in, no tempo change)")
+                   help="also write the stems for a GarageBand project (no count-in, tempo or pitch change)")
     trim = g.add_mutually_exclusive_group()
     trim.add_argument("-s", "--start", type=float, metavar="SECONDS",
                       help="where the song starts, overriding intro detection")

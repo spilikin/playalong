@@ -106,9 +106,31 @@ def place_beat(audio: np.ndarray, rate: int, start: float, beat: float, at: floa
     return np.concatenate([np.zeros((silence, audio.shape[1]), dtype=audio.dtype), out])
 
 
-def write(audio: np.ndarray, rate: int, dest: Path, tempo: float = 1.0) -> Path:
+ATEMPO_MIN = 0.5  # ffmpeg's atempo takes 0.5–100 per filter
+
+
+def _atempo(factor: float) -> list[str]:
+    """atempo filters whose speeds multiply to `factor`."""
+    filters = []
+    while factor < ATEMPO_MIN:
+        filters.append(f"atempo={ATEMPO_MIN}")
+        factor /= ATEMPO_MIN
+    return [*filters, f"atempo={factor:.6f}"]
+
+
+def _filters(rate: int, tempo: float, transpose: int) -> list[str]:
+    if not transpose:
+        return [f"atempo={tempo}"] if tempo != 1.0 else []  # time-stretch, pitch preserved
+    # Played faster by `ratio` (pitch and speed up together), then stretched back to the wanted tempo:
+    # only the pitch moves, so the count-in and chord timing stay as for an untransposed mix.
+    ratio = 2 ** (transpose / 12)
+    return [f"asetrate={rate * ratio:.4f}", f"aresample={rate}", *_atempo(tempo / ratio)]
+
+
+def write(audio: np.ndarray, rate: int, dest: Path, tempo: float = 1.0, transpose: int = 0) -> Path:
     dest.parent.mkdir(parents=True, exist_ok=True)
-    if dest.suffix == ".wav" and tempo == 1.0:
+    filters = _filters(rate, tempo, transpose)
+    if dest.suffix == ".wav" and not filters:
         sf.write(dest, audio, rate, subtype="PCM_24")
         return dest
 
@@ -116,8 +138,8 @@ def write(audio: np.ndarray, rate: int, dest: Path, tempo: float = 1.0) -> Path:
         raw = Path(tmp) / "mix.wav"
         sf.write(raw, audio, rate, subtype="FLOAT")
         cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(raw)]
-        if tempo != 1.0:
-            cmd += ["-filter:a", f"atempo={tempo}"]  # time-stretch, pitch preserved
+        if filters:
+            cmd += ["-filter:a", ",".join(filters)]
         if dest.suffix == ".mp3":
             cmd += ["-codec:a", "libmp3lame", "-b:a", "320k"]
         elif dest.suffix == ".wav":
@@ -150,10 +172,12 @@ def make_mixes(
     start: float | None = None,
     count_in: int = 0,
     bpm: float | None = None,
+    transpose: int = 0,
 ) -> list[Path]:
     """Render mixes; start=None detects the song start, 0 keeps the whole recording.
 
-    count_in adds that many bars of stick clicks at the song's tempo (detected, or `bpm`).
+    count_in adds that many bars of stick clicks at the song's tempo (detected, or `bpm`); transpose moves
+    the pitch by that many semitones.
     """
     stems, rate = load_stems(track_dir / "stems")
     if start is None:
@@ -182,7 +206,7 @@ def make_mixes(
     if custom:
         jobs.append((custom_name, custom))
 
-    suffix = "" if tempo == 1.0 else f" @{round(tempo * 100)}%"
+    suffix = (f" {transpose:+d}" if transpose else "") + ("" if tempo == 1.0 else f" @{round(tempo * 100)}%")
     if count_in:
         from playalong.countin import count_timing
 
@@ -202,9 +226,9 @@ def make_mixes(
     written = []
     for name, gains in jobs:
         dest = track_dir / "mixes" / f"{track_dir.name} - {name}{suffix}.{fmt}"
-        written.append(write(finish(mixed(name, gains)), rate, dest, tempo))
+        written.append(write(finish(mixed(name, gains)), rate, dest, tempo, transpose))
         # Song time at a point in the mix: source_offset + mix seconds * tempo.
-        _record_mix(track_dir, dest, {"name": name, "tempo": tempo, "source_offset": source_offset,
-                                      "count_in": timing})
+        _record_mix(track_dir, dest, {"name": name, "tempo": tempo, "transpose": transpose,
+                                      "source_offset": source_offset, "count_in": timing})
         print(f"  {dest}")
     return written

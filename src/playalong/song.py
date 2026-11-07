@@ -14,7 +14,7 @@ from pathlib import Path
 import soundfile as sf
 
 from playalong.chord_page import parse, voicing
-from playalong.chords import ChordResult
+from playalong.chords import ChordResult, transpose_chord, transpose_key
 from playalong.countin import BEATS_PER_BAR
 from playalong.cover import COVER
 from playalong.mix import MIX_INDEX
@@ -64,7 +64,7 @@ def _chord_data(result: ChordResult) -> dict:
     }
 
 
-MIX_NAME = re.compile(r" - (?P<name>.+?)(?: @(?P<percent>\d+)%)?$")
+MIX_NAME = re.compile(r" - (?P<name>.+?)(?: (?P<semitones>[+-]\d{1,2}))?(?: @(?P<percent>\d+)%)?$")
 GARAGEBAND = re.compile(r" - GarageBand(?: (?P<bpm>\d+) BPM)?$")
 
 
@@ -89,10 +89,23 @@ def _files(track_dir: Path) -> dict:
                 # Timing is only known for mixes rendered since mixes.json existed; older ones get nulls.
                 timing = index.get(p.name, {})
                 mixes.append({"file": rel(p), "name": m["name"], "tempo": tempo,
+                              "transpose": int(m["semitones"] or 0),
                               "source_offset": timing.get("source_offset"), "count_in": timing.get("count_in")})
     sheet = track_dir / "chords.html"
     return {"stems": stems, "mixes": mixes, "garageband": garageband,
             "chord_sheet": rel(sheet) if sheet.exists() else None}
+
+
+def _transpositions(key: str | None, chords: list[dict] | None, mixes: list[dict]) -> dict:
+    """The key and chord names for each transposed mix, so a player only has to look them up."""
+    if not key or not chords:
+        return {}
+    out = {}
+    for semitones in sorted({m["transpose"] for m in mixes} - {0}):
+        moved = transpose_key(key, semitones)
+        names = dict.fromkeys(c["name"] for c in chords if c["name"] != "N")
+        out[f"{semitones:+d}"] = {"key": moved, "chords": {n: transpose_chord(n, semitones, moved) for n in names}}
+    return out
 
 
 def _cover(track_dir: Path, info: dict) -> dict | None:
@@ -119,6 +132,14 @@ def write_song(track_dir: Path, chords: ChordResult | None = None) -> Path:
     chord_data = {"key": chord_data["key"], "beats": chord_data["beats"] or [], "bars": chord_data["bars"] or [],
                   "chords": chord_data["chords"], "chord_shapes": chord_data["chord_shapes"] or {}}
 
+    files = _files(track_dir)
+    transpositions = _transpositions(chord_data["key"], chord_data["chords"], files["mixes"])
+    # Rebuilt each time, so shapes of a transposition whose mixes were deleted don't linger.
+    shapes = chord_data["chord_shapes"]
+    names = [n for n in shapes if n in {c["name"] for c in chord_data["chords"] or []}]
+    names += [n for t in transpositions.values() for n in t["chords"].values()]
+    chord_data["chord_shapes"] = {n: shapes.get(n) or _shape(n) for n in dict.fromkeys(names)}
+
     song = {
         "format": SONG_FORMAT,
         "version": SONG_VERSION,
@@ -132,7 +153,8 @@ def write_song(track_dir: Path, chords: ChordResult | None = None) -> Path:
         "tempo": ({"bpm": info["bpm"], "confidence": info.get("bpm_confidence"), "source": info.get("bpm_source"),
                    "beats_per_bar": BEATS_PER_BAR} if info.get("bpm") else None),
         **chord_data,
-        **_files(track_dir),
+        **files,
+        "transpositions": transpositions,
     }
 
     # Written to a temporary name and renamed, so a player never reads a half-written file.

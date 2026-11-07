@@ -67,9 +67,10 @@ def test_it_describes_the_song_its_timing_and_files(tmp_path):
     assert song["stems"] == {"bass": "stems/bass.wav", "drums": "stems/drums.wav", "guitar": "stems/guitar.wav"}
     unknown = {"source_offset": None, "count_in": None}
     assert song["mixes"] == [
-        {"file": "mixes/artist-song - backing @80%.wav", "name": "backing", "tempo": 0.8, **unknown},
-        {"file": "mixes/artist-song - no-guitar.mp3", "name": "no-guitar", "tempo": 1.0, **unknown},
-        {"file": "mixes/artist-song - quiet-guitar.flac", "name": "quiet-guitar", "tempo": 1.0, **unknown},
+        {"file": "mixes/artist-song - backing @80%.wav", "name": "backing", "tempo": 0.8, "transpose": 0, **unknown},
+        {"file": "mixes/artist-song - no-guitar.mp3", "name": "no-guitar", "tempo": 1.0, "transpose": 0, **unknown},
+        {"file": "mixes/artist-song - quiet-guitar.flac", "name": "quiet-guitar", "tempo": 1.0, "transpose": 0,
+         **unknown},
     ]
     assert song["garageband"] == {"folder": "mixes/artist-song - GarageBand 120 BPM", "bpm": 120}
     assert song["cover"] is None
@@ -130,3 +131,24 @@ def test_the_cover_is_listed_with_where_it_came_from(tmp_path):
     (d / "info.json").write_text(json.dumps({**info, "cover_source": "itunes", "album": "Album"}))
     write_song(d)
     assert read_song(d)["cover"] == {"file": "cover.jpg", "source": "itunes", "album": "Album"}
+
+
+def test_transposed_mixes_come_with_their_key_chord_names_and_shapes(tmp_path):
+    d = track(tmp_path)
+    transposed = [d / "mixes" / n for n in ("artist-song - guide -2 @80%.mp3", "artist-song - no-guitar +3.mp3")]
+    for p in transposed:
+        p.write_bytes(b"")
+    song = json.loads(write_song(d, chords()).read_text())
+    guide = next(m for m in song["mixes"] if m["name"] == "guide")
+    assert guide["tempo"] == 0.8 and guide["transpose"] == -2
+    assert song["transpositions"] == {
+        "-2": {"key": "G# minor", "chords": {"Bbm": "G#m", "Gb": "E"}},
+        "+3": {"key": "C# minor", "chords": {"Bbm": "C#m", "Gb": "A"}},
+    }
+    assert set(song["chord_shapes"]) == {"Bbm", "Gb", "G#m", "E", "C#m", "A"}
+    assert song["chord_shapes"]["E"]["frets"] == [0, 2, 2, 1, 0, 0]
+
+    for p in transposed:
+        p.unlink()
+    song = json.loads(write_song(d).read_text())
+    assert song["transpositions"] == {} and set(song["chord_shapes"]) == {"Bbm", "Gb"}

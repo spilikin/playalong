@@ -15,6 +15,7 @@
     chordLabel,
     countAt,
     defaultMix,
+    forMix,
     groupMixes,
     mixBlurb,
     mixLabel,
@@ -42,7 +43,8 @@
   // Song time to resume at once a newly chosen mix has loaded, so switching mixes keeps your place.
   let resumeAt: number | null = null;
 
-  const song = $derived(opened?.song);
+  // Seen through the playing mix, so a transposed one shows its own key and chords.
+  const song = $derived(opened ? forMix(opened.song, mix) : undefined);
   const src = $derived(opened && mix ? convertFileSrc(`${opened.folder}/${mix.file}`) : '');
   const cover = $derived(opened && song?.cover ? convertFileSrc(`${opened.folder}/${song.cover.file}`) : '');
   const s = $derived(strings());

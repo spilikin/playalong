@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from playalong.chords import chord_name, detect_chords, estimate_key, format_chart
+from playalong.chords import chord_name, detect_chords, estimate_key, format_chart, transpose_chord, transpose_key
 from test_tempo import RATE, hits
 
 NOTE = {"C": 0, "C#": 1, "Db": 1, "D": 2, "Eb": 3, "E": 4, "F": 5, "F#": 6, "Gb": 6, "G": 7, "Ab": 8, "A": 9,
@@ -147,3 +147,22 @@ def test_a_quick_change_on_beat_three_shows_up():
     result = detect_chords(stems, RATE, start=0.5)
     names = [c.name for c in result.chords if c.name != "N"]
     assert names == ["Ab", "Db", "Ab", "Gb"]
+
+
+@pytest.mark.parametrize("key, semitones, moved", [
+    ("Ab major", -2, "Gb major"), ("Ab major", 1, "A major"), ("A minor", 2, "B minor"),
+    ("Bb minor", 2, "C minor"), ("B major", 1, "C major"), ("C major", -1, "B major"), ("E minor", 12, "E minor"),
+])
+def test_keys_move_by_semitones_and_keep_their_spelling_rule(key, semitones, moved):
+    assert transpose_key(key, semitones) == moved
+
+
+def test_chords_move_and_are_spelled_for_the_new_key():
+    assert transpose_chord("Bbm", -2, "Gb major") == "Abm"
+    assert transpose_chord("Ab", -2, "Gb major") == "Gb"
+    assert transpose_chord("Ab", 1, "A major") == "A"
+    assert transpose_chord("Db", 1, "D major") == "D"
+    assert transpose_chord("Gb", 1, "A major") == "G"
+    assert transpose_chord("B", 1, "F major") == "C"
+    assert transpose_chord("C", 1, "D major") == "C#"
+    assert transpose_chord("N", 3, "C major") == "N"
