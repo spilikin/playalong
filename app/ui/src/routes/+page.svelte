@@ -6,9 +6,13 @@
   import ChordDiagram from '$lib/ChordDiagram.svelte';
   import ChordSheet from '$lib/ChordSheet.svelte';
   import CountIn from '$lib/CountIn.svelte';
+  import Library from '$lib/Library.svelte';
+  import MakingCard from '$lib/MakingCard.svelte';
   import MixIcon from '$lib/MixIcon.svelte';
   import ThemeToggle from '$lib/ThemeToggle.svelte';
+  import Welcome from '$lib/Welcome.svelte';
   import Wordmark from '$lib/Wordmark.svelte';
+  import { clearJob, maker, refreshLibrary, startMaker } from '$lib/maker.svelte';
   import { strings } from '$lib/i18n.svelte';
   import {
     chordIndexAt,
@@ -97,6 +101,24 @@
     }
   }
 
+  function toLibrary() {
+    audio?.pause();
+    opened = null;
+    error = '';
+    void refreshLibrary();
+  }
+
+  // A song made while the Library is showing opens when it's done; in the player, the sidebar offers it.
+  $effect(() => {
+    const made = maker.job?.made;
+    if (made && !opened) {
+      clearJob();
+      void openPath(made.folder);
+    }
+  });
+
+  const AUDIO = /\.(wav|mp3|flac|m4a|aac|ogg|opus|aiff?)$/i;
+
   async function pick() {
     const chosen = await open({ directory: true, title: s.dialogTitle });
     if (typeof chosen === 'string') await openPath(chosen);
@@ -170,6 +192,7 @@
   }
 
   onMount(() => {
+    void startMaker();
     let stop: (() => void) | undefined;
     let destroyed = false;
     // `Playalong <folder> [--at SECONDS]` opens that song, waiting at that point in it.
@@ -187,7 +210,10 @@
         else if (p.type === 'leave') dropping = false;
         else if (p.type === 'drop') {
           dropping = false;
-          if (p.paths[0]) void openPath(p.paths[0]);
+          const path = p.paths[0];
+          // An audio file dropped on the Library goes into its link field, to be made into a song.
+          if (path && AUDIO.test(path) && maker.installed && !opened) maker.draft = path;
+          else if (path) void openPath(path);
         }
       })
       .then((unlisten) => (destroyed ? unlisten() : (stop = unlisten)))
@@ -200,32 +226,18 @@
 
   const clock = (s: number) =>
     Number.isFinite(s) ? `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}` : '0:00';
-  const folderName = (path: string) => path.split(/[\\/]/).filter(Boolean).pop() ?? path;
 </script>
 
 <svelte:window onkeydown={keys} />
 
 {#if !opened || !song}
-  <!-- The window has no title bar of its own: this strip is where it is dragged from. -->
-  <div class="titlebar" data-tauri-drag-region>
-    <ThemeToggle />
-  </div>
-  <main class="start">
-    <h1>Playalong</h1>
-    <Wordmark size={54} />
-    <p>{s.intro}</p>
-    <button class="primary" onclick={pick}>{s.openFolder}</button>
-    {#if error}<p class="error" role="alert">{error}</p>{/if}
-    {#if recents.length}
-      <h2>{s.recent}</h2>
-      <ul>
-        {#each recents as path (path)}
-          <li><button class="link" onclick={() => openPath(path)} title={path}>{folderName(path)}</button></li>
-        {/each}
-      </ul>
-    {/if}
-    <p class="hint">{s.dropHint}</p>
-  </main>
+  {#if maker.installed}
+    <Library onOpen={openPath} onPick={pick} {error} />
+  {:else if maker.ready}
+    <Welcome onPick={pick} onOpen={openPath} {recents} {error} />
+  {:else}
+    <div class="titlebar" data-tauri-drag-region></div>
+  {/if}
 {:else}
   <!-- One window-wide toolbar in the title bar, as macOS apps have it: the window buttons sit over the
        top of the mix sidebar, and the toolbar (also the drag area) fills the rest of the row. -->
@@ -269,7 +281,11 @@
       </div>
       <div class="tools">
         <ThemeToggle />
-        <button class="open" onclick={pick}>{s.open}</button>
+        {#if maker.installed}
+          <button class="open" onclick={toLibrary}>{s.backToLibrary}</button>
+        {:else}
+          <button class="open" onclick={pick}>{s.open}</button>
+        {/if}
       </div>
     </header>
 
@@ -286,6 +302,7 @@
           {@render mixButton(m, mixBlurb(m, s))}
         {/each}
       {/if}
+      <MakingCard onOpen={openPath} />
       <div class="foot"><Wordmark /></div>
     </nav>
 
@@ -361,73 +378,10 @@
 {/if}
 
 <style>
-  /* Height of the title bar row; the window buttons are placed to sit centred in it (tauri.conf.json). */
-  .titlebar,
   .app {
     --titlebar: 52px;
   }
-  .titlebar {
-    position: fixed;
-    inset: 0 0 auto;
-    height: var(--titlebar);
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    padding: 0 14px;
-    z-index: 10;
-  }
-  .start {
-    max-width: 520px;
-    margin: 14vh auto 0;
-    padding: 0 24px;
-  }
-  .start h1 {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    margin: 0 0 4px;
-  }
-  .start p {
-    color: var(--muted);
-    margin: 0 0 20px;
-  }
-  .start :global(.mark) {
-    margin-bottom: 14px;
-  }
-  .start h2 {
-    font-size: 13px;
-    color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    margin: 32px 0 6px;
-  }
-  .start ul {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-  }
-  .start .hint {
-    margin-top: 32px;
-    font-size: 13px;
-  }
-  .primary {
-    background: var(--accent);
-    color: var(--on-accent);
-    border-color: var(--accent);
-    padding: 10px 18px;
-    font-weight: 600;
-  }
-  .link {
-    border: 0;
-    padding: 4px 0;
-    background: none;
-    font-weight: 500;
-  }
-  .link:hover {
-    text-decoration: underline;
-  }
+  /* Height of the title bar row; the window buttons are placed to sit centred in it (tauri.conf.json). */
 
   /* The whole window: sidebar down the left, toolbar across the top, and only the bar sheet scrolls. */
   .app {
@@ -657,9 +611,6 @@
     background: var(--panel);
     color: var(--ink);
     font-size: 13px;
-  }
-  .error {
-    color: var(--error);
   }
   /* Like a chord chart app: the chord to play now large, the next ones in a row beside it. */
   .stage {
