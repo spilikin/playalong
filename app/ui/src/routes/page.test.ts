@@ -4,7 +4,7 @@ import { clearMocks, mockIPC, mockWindows } from '@tauri-apps/api/mocks';
 import { emit } from '@tauri-apps/api/event';
 import { opened } from '$lib/fixture';
 import { maker } from '$lib/maker.svelte';
-import { DEFAULT_MIXES } from '$lib/mixes';
+import { DEFAULT_MIXES, type Recipe } from '$lib/mixes';
 import { playback } from '$lib/playback.svelte';
 import Page from './+page.svelte';
 
@@ -283,5 +283,89 @@ describe('library', () => {
     });
     await fireEvent.click(screen.getByRole('button', { name: 'Make song' }));
     expect(await screen.findByText('ERROR: Video unavailable')).toBeTruthy();
+  });
+});
+
+describe('editing mixes', () => {
+  async function openSong() {
+    render(Page);
+    await fireEvent.click(await screen.findByRole('button', { name: 'Open song folder…' }));
+    await screen.findByRole('heading', { name: 'Kad izdzisīs' });
+  }
+
+  async function edit() {
+    await openSong();
+    await fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    return within(await screen.findByRole('region', { name: 'Mixer' }));
+  }
+
+  const lastMix = () =>
+    (calls.filter((c) => c.cmd === 'playback_set_mix').at(-1)?.args as { recipe: Recipe } | undefined)?.recipe;
+
+  it('Edit shows the mixer of the mix playing in place of the chords, Done goes back', async () => {
+    const mixer = await edit();
+    expect(screen.getByRole('button', { name: 'Done', pressed: true })).toBeTruthy();
+    expect(mixer.getByRole('heading', { name: 'Original' })).toBeTruthy();
+    expect(screen.queryByRole('region', { name: 'Chords' })).toBeNull();
+    await fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    expect(screen.getByRole('region', { name: 'Chords' })).toBeTruthy();
+  });
+
+  it('renames a mix and keeps it, without rendering anything', async () => {
+    await edit();
+    await fireEvent.input(screen.getByRole('textbox', { name: 'Name of Guide' }), { target: { value: 'Band' } });
+    await waitFor(() =>
+      expect((calls.find((c) => c.cmd === 'mixes_save')?.args as { mixes: Recipe[] }).mixes[1].name).toBe('Band'),
+    );
+    expect(calls.some((c) => c.cmd.startsWith('song_'))).toBe(false);
+  });
+
+  it('a level, mute, solo, key or tempo change is heard at once', async () => {
+    const mixer = await edit();
+    await fireEvent.input(mixer.getByRole('slider', { name: 'Guitar' }), { target: { value: '-12' } });
+    expect(lastMix()?.levels.guitar).toBe(-12);
+    await fireEvent.click(mixer.getByRole('button', { name: 'Mute Vocals' }));
+    expect(lastMix()?.mute).toEqual(['vocals']);
+    await fireEvent.click(mixer.getByRole('button', { name: 'Solo Drums' }));
+    expect(lastMix()?.solo).toEqual(['drums']);
+    await fireEvent.click(mixer.getByRole('button', { name: 'Down a semitone' }));
+    await fireEvent.click(mixer.getByRole('button', { name: 'Slower' }));
+    expect(lastMix()).toMatchObject({ transpose: -1, tempo: 0.95 });
+    await fireEvent.click(mixer.getByRole('radio', { name: '2 bars' }));
+    expect(lastMix()?.count_in).toBe(2);
+    await fireEvent.click(mixer.getByRole('button', { name: 'No guitar' }));
+    expect(lastMix()).toMatchObject({ mute: ['guitar'], solo: [], transpose: -1 });
+  });
+
+  it('makes, duplicates, moves and deletes mixes', async () => {
+    await edit();
+    await fireEvent.click(screen.getByRole('button', { name: '+ New mix' }));
+    expect(screen.getByRole('textbox', { name: 'Name of Original copy' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Original copy' })).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: 'More for Guide' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Move up' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'More for No guitar' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Delete' }));
+    const names = screen.getAllByRole('textbox', { name: /^Name of / }).map((i) => (i as HTMLInputElement).value);
+    expect(names).toEqual(['Guide', 'Original', 'Original copy']);
+    await waitFor(() =>
+      expect((calls.filter((c) => c.cmd === 'mixes_save').at(-1)?.args as { mixes: Recipe[] }).mixes).toHaveLength(3),
+    );
+  });
+
+  it('exports a mix as an MP3', async () => {
+    ipc.song_export = () => '/lib/kad-izdzisis/exports/kad - Guide.mp3';
+    await edit();
+    await fireEvent.click(screen.getByRole('button', { name: 'More for Guide' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Export MP3…' }));
+    expect(calls.find((c) => c.cmd === 'song_export')?.args).toEqual({ folder: '/lib/kad-izdzisis', mix: 'guide' });
+    expect(await screen.findByText(/shown in Finder/)).toBeTruthy();
+  });
+
+  it('without the song’s tempo the count-in is off and says why', async () => {
+    openResult = { ...opened, song: { ...opened.song, tempo: null } };
+    const mixer = await edit();
+    expect((mixer.getByRole('radio', { name: '1 bar' }) as HTMLInputElement).disabled).toBe(true);
+    expect(mixer.getByText(/needs the song’s tempo/)).toBeTruthy();
   });
 });

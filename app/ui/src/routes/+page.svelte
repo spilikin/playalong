@@ -8,14 +8,15 @@
   import CountIn from '$lib/CountIn.svelte';
   import Library from '$lib/Library.svelte';
   import MakingCard from '$lib/MakingCard.svelte';
-  import MixIcon from '$lib/MixIcon.svelte';
+  import MixList from '$lib/MixList.svelte';
+  import Mixer from '$lib/Mixer.svelte';
   import ThemeToggle from '$lib/ThemeToggle.svelte';
   import AppUpdate from '$lib/AppUpdate.svelte';
   import { checkAppUpdate } from '$lib/selfUpdate.svelte';
   import Welcome from '$lib/Welcome.svelte';
   import Wordmark from '$lib/Wordmark.svelte';
   import { clearJob, maker, refreshLibrary, startMaker } from '$lib/maker.svelte';
-  import { describeMix, liveMix, type Recipe } from '$lib/mixes';
+  import { liveMix } from '$lib/mixes';
   import {
     chooseMix,
     closePlayback,
@@ -47,6 +48,8 @@
   let dropping = $state(false);
   let recents = $state<string[]>(loadRecents());
   let scroller = $state<HTMLElement>();
+  // The mix list's Edit mode: the main area shows the mixer of the mix playing instead of the chords.
+  let editing = $state(false);
   // Song time to wait at once the song is open (`--at` on the command line).
   let resumeAt: number | null = null;
 
@@ -103,6 +106,7 @@
         result = await invoke<OpenedSong>('song_refresh', { folder: result.folder });
       }
       await openPlayback(result.folder);
+      editing = false;
       opened = result;
       error = '';
       remember(path);
@@ -275,16 +279,16 @@
     </header>
 
     <nav class="tray" aria-label={s.mixes}>
-      <h2>{s.mixes}</h2>
-      {#each playback.mixes as m, i (m.id)}
-        {@render mixButton(m, i)}
-      {/each}
+      <MixList bind:editing />
       <MakingCard onOpen={openPath} />
       <div class="foot"><Wordmark /></div>
     </nav>
 
     <div class="main">
       {#if error}<p class="error banner" role="alert">{error}</p>{/if}
+      {#if editing && recipe}
+        <Mixer {recipe} song={opened.song} />
+      {:else}
       {#if !song.chords}
         <p class="banner">{s.noChords[0]}<code>playalong chords</code>{s.noChords[1]}</p>
       {/if}
@@ -310,22 +314,11 @@
       <main class="sheet-wrap" bind:this={scroller}>
         <ChordSheet {bars} shapes={song.chord_shapes} {time} onSeek={seekSong} viewport={scroller} />
       </main>
+      {/if}
     </div>
   </div>
 {/if}
 
-{#snippet mixButton(m: Recipe, i: number)}
-  <button
-    class="mix"
-    aria-pressed={m.id === playback.current}
-    aria-label={`${m.name}, ${describeMix(m, s)}`}
-    title={i < 4 ? `${describeMix(m, s)} (${i + 1})` : describeMix(m, s)}
-    onclick={() => void chooseMix(m.id)}
-  >
-    <span class="icon"><MixIcon name={m.id} /></span>
-    <span class="label">{m.name}<span class="blurb">{describeMix(m, s)}</span></span>
-  </button>
-{/snippet}
 
 {#if dropping}
   <div class="drop" aria-hidden="true"><p>{s.drop}</p></div>
@@ -487,67 +480,11 @@
     padding: 4px 8px 12px;
     overflow-y: auto;
   }
-  .tray h2 {
-    margin: 6px 8px 4px;
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--muted);
-  }
   .foot {
     margin-top: auto;
     padding: 16px 8px 0;
     opacity: 0.85;
   }
-  .mix {
-    display: grid;
-    grid-template-columns: 26px minmax(0, 1fr);
-    gap: 8px;
-    align-items: center;
-    width: 100%;
-    text-align: left;
-    border: 0;
-    background: transparent;
-    padding: 6px 8px;
-    border-radius: 8px;
-  }
-  .mix:hover {
-    background: var(--fill);
-  }
-  .mix .icon {
-    width: 26px;
-    height: 26px;
-    display: grid;
-    place-items: center;
-    border-radius: 7px;
-    background: var(--fill);
-  }
-  .label {
-    font-size: 13px;
-    font-weight: 500;
-    min-width: 0;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .blurb {
-    display: block;
-    font-size: 11px;
-    font-weight: 400;
-    color: var(--muted);
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .mix[aria-pressed='true'] {
-    background: var(--accent);
-    color: var(--on-accent);
-  }
-  .mix[aria-pressed='true'] .icon {
-    background: rgba(255, 255, 255, 0.22);
-  }
-  .mix[aria-pressed='true'] .blurb {
-    color: rgba(255, 255, 255, 0.8);
-  }
-
   .main {
     grid-row: 2;
     grid-column: 2;
