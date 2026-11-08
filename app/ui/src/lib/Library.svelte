@@ -1,23 +1,22 @@
 <script lang="ts">
-  // The start screen once the audio tools are in place: a new-song bar on top, the songs below, and the
+  // The songs in the library, as the sidebar filters them and the toolbar's search narrows them, with the
   // song being made as the first row.
   import { convertFileSrc } from '@tauri-apps/api/core';
-  import { open } from '@tauri-apps/plugin-dialog';
-  import ThemeToggle from './ThemeToggle.svelte';
-  import AppUpdate from './AppUpdate.svelte';
   import { locale, strings } from './i18n.svelte';
   import { clearJob, installTools, maker, makeSong, stopSong } from './maker.svelte';
-  import { addedLabel, keyShort, matches, megabytes, progressOf, timeLeft, transposeLabel } from './maker';
+  import { addedLabel, keyShort, megabytes, progressOf, shownSongs, timeLeft, transposeLabel, type Shelf } from './maker';
 
-  let { onOpen, onPick, error = '' }: { onOpen: (folder: string) => void; onPick: () => void; error?: string } =
-    $props();
+  let {
+    onOpen,
+    shelf = 'all',
+    query = '',
+    error = '',
+  }: { onOpen: (folder: string) => void; shelf?: Shelf; query?: string; error?: string } = $props();
 
   const s = $derived(strings());
-  let query = $state('');
-  let source = $state('');
   let details = $state(false);
 
-  const shown = $derived(maker.songs.filter((song) => matches(song, query)));
+  const shown = $derived(shelf === 'making' ? [] : shownSongs(maker.songs, shelf, query, Date.now() / 1000));
   const job = $derived(maker.job);
   const progress = $derived(progressOf(job?.lines ?? []));
   const step = $derived(progress.step);
@@ -40,56 +39,10 @@
   const now = new Date();
   const place = $derived(maker.library.replace(/^\/Users\/[^/]+\//, '').replaceAll('/', ' › '));
 
-  // An audio file dropped on the window waits here to be made.
-  $effect(() => {
-    if (maker.draft) {
-      source = maker.draft;
-      maker.draft = '';
-    }
-  });
-
-  async function chooseFile() {
-    const chosen = await open({
-      title: s.chooseAudio,
-      filters: [{ name: 'Audio', extensions: ['wav', 'mp3', 'flac', 'm4a', 'aac', 'ogg', 'opus', 'aiff', 'aif'] }],
-    });
-    if (typeof chosen === 'string') source = chosen;
-  }
-
-  function make(event: SubmitEvent) {
-    event.preventDefault();
-    if (!source.trim() || job?.running) return;
-    details = false;
-    void makeSong(source);
-    source = '';
-  }
-
   const shortSource = (text: string) => text.replace(/^https?:\/\/(www\.)?/, '').split('/').pop() ?? text;
 </script>
 
 <div class="library">
-  <header data-tauri-drag-region>
-    <h1 data-tauri-drag-region>{s.library}</h1>
-    <span class="muted" data-tauri-drag-region>{s.songCount(maker.songs.length)}</span>
-    <span class="grow" data-tauri-drag-region></span>
-    <input class="search" type="search" placeholder={s.search} aria-label={s.searchLabel} bind:value={query} />
-    <button onclick={onPick}>{s.openFolderShort}</button>
-    <AppUpdate />
-    <ThemeToggle />
-  </header>
-
-  <form class="new" aria-label={s.newSong} onsubmit={make}>
-    <input
-      class="source"
-      aria-label={s.linkLabel}
-      placeholder={s.linkPlaceholder}
-      bind:value={source}
-      spellcheck="false"
-      autocomplete="off"
-    />
-    <button type="button" onclick={chooseFile}>{s.file}</button>
-    <button class="primary" type="submit" disabled={!source.trim() || job?.running}>{s.makeSong}</button>
-  </form>
   {#if error}<p class="error banner" role="alert">{error}</p>{/if}
 
   <div class="table">
@@ -163,7 +116,7 @@
         <span class="muted small">{addedLabel(song.added, now, locale.lang, s)}</span>
       </button>
     {:else}
-      {#if !job}<p class="empty muted">{maker.songs.length ? s.noMatches : s.emptyLibrary}</p>{/if}
+      {#if !job}<p class="empty muted">{shelf === 'making' ? s.nothingMaking : maker.songs.length ? s.noMatches : s.emptyLibrary}</p>{/if}
     {/each}
   </div>
 
@@ -186,65 +139,10 @@
 
 <style>
   .library {
-    height: 100vh;
+    height: 100%;
+    min-height: 0;
     display: flex;
     flex-direction: column;
-  }
-  header {
-    flex: none;
-    height: 52px;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    /* The window buttons sit at the left of this row. */
-    padding: 0 14px 0 84px;
-    border-bottom: 1px solid var(--hairline);
-  }
-  h1 {
-    margin: 0;
-    font-size: 17px;
-  }
-  .grow {
-    flex: 1;
-  }
-  .search {
-    width: 180px;
-    font: inherit;
-    font-size: 13px;
-    padding: 5px 10px;
-    border-radius: 8px;
-    border: 1px solid var(--hairline);
-    background: var(--panel);
-    color: var(--ink);
-  }
-  header button {
-    font-size: 13px;
-    padding: 5px 12px;
-  }
-  .new {
-    flex: none;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 12px 16px;
-    background: var(--tray);
-    border-bottom: 1px solid var(--hairline);
-  }
-  .new button {
-    padding: 7px 12px;
-  }
-  .new .primary {
-    padding: 7px 16px;
-  }
-  .source {
-    flex: 1;
-    min-width: 0;
-    font: inherit;
-    padding: 7px 10px;
-    border-radius: 8px;
-    border: 1px solid var(--hairline);
-    background: var(--bg);
-    color: var(--ink);
   }
   button:disabled {
     opacity: 0.45;

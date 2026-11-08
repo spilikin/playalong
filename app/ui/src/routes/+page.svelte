@@ -7,16 +7,16 @@
   import ChordSheet from '$lib/ChordSheet.svelte';
   import CountIn from '$lib/CountIn.svelte';
   import Library from '$lib/Library.svelte';
-  import MakingCard from '$lib/MakingCard.svelte';
-  import MixList from '$lib/MixList.svelte';
+  import Sidebar from '$lib/Sidebar.svelte';
+  import AddSong from '$lib/AddSong.svelte';
   import Mixer from '$lib/Mixer.svelte';
   import SongPanel from '$lib/SongPanel.svelte';
   import ThemeToggle from '$lib/ThemeToggle.svelte';
   import AppUpdate from '$lib/AppUpdate.svelte';
   import { checkAppUpdate } from '$lib/selfUpdate.svelte';
   import Welcome from '$lib/Welcome.svelte';
-  import Wordmark from '$lib/Wordmark.svelte';
   import { clearJob, maker, refreshLibrary, startMaker } from '$lib/maker.svelte';
+  import type { Place } from '$lib/maker';
   import { liveMix } from '$lib/mixes';
   import {
     chooseMix,
@@ -49,13 +49,14 @@
   let dropping = $state(false);
   let recents = $state<string[]>(loadRecents());
   let scroller = $state<HTMLElement>();
-  // The mix list's Edit mode: the main area shows the mixer of the mix playing instead of the chords.
-  let editing = $state(false);
-  // In Edit mode the main area has two tabs: the selected mix's mixer, and the song's own settings.
-  let editTab = $state<'mix' | 'song'>('mix');
-  $effect(() => {
-    if (!editing) editTab = 'mix';
-  });
+  // What the main area shows (the sidebar picks it): a Library shelf, the playing mix, or the song's settings.
+  let place = $state<Place>('all');
+  // The playing mix's two views: its chords, or its mixer.
+  let tab = $state<'chords' | 'mixer'>('chords');
+  let query = $state('');
+  // The Add Song sheet, and what it starts with (an audio file dropped on the window).
+  let adding = $state<string | null>(null);
+  const inPlayer = $derived(place === 'player' || place === 'song');
   // Song time to wait at once the song is open (`--at` on the command line).
   let resumeAt: number | null = null;
 
@@ -69,6 +70,7 @@
   const song = $derived(opened ? forMix(opened.song, mix) : undefined);
   const cover = $derived(opened && song?.cover ? convertFileSrc(`${opened.folder}/${song.cover.file}`) : '');
   const s = $derived(strings());
+  const shelfTitle = $derived(place === 'recent' ? s.recentlyAdded : place === 'making' ? s.beingMade : s.allSongs);
   // Built as text, since Svelte drops the spaces at the edges of {#if} blocks.
   const details = $derived(
     [
@@ -112,8 +114,9 @@
         result = await invoke<OpenedSong>('song_refresh', { folder: result.folder });
       }
       await openPlayback(result.folder);
-      editing = false;
       opened = result;
+      place = 'player';
+      tab = 'chords';
       error = '';
       remember(path);
       if (resumeAt !== null && mix && song) void seek(mixTime(mix, resumeAt, song));
@@ -137,9 +140,11 @@
     if (wasPlaying) await play();
   }
 
-  function toLibrary() {
+  /** The song is gone (deleted): back to the Library with nothing playing. */
+  function closeSong() {
     void closePlayback();
     opened = null;
+    place = 'all';
     error = '';
     void refreshLibrary();
   }
@@ -220,7 +225,7 @@
           dropping = false;
           const path = p.paths[0];
           // An audio file dropped on the Library goes into its link field, to be made into a song.
-          if (path && AUDIO.test(path) && maker.installed && !opened) maker.draft = path;
+          if (path && AUDIO.test(path) && maker.installed) adding = path;
           else if (path) void openPath(path);
         }
       })
@@ -238,123 +243,132 @@
 
 <svelte:window onkeydown={keys} />
 
-{#if !opened || !song}
-  {#if maker.installed}
-    <Library onOpen={openPath} onPick={pick} {error} />
-  {:else if maker.ready}
+{#if !maker.installed && !opened}
+  {#if maker.ready}
     <Welcome onPick={pick} onOpen={openPath} {recents} {error} />
   {:else}
     <div class="titlebar" data-tauri-drag-region></div>
   {/if}
 {:else}
-  <!-- One window-wide toolbar in the title bar, as macOS apps have it: the window buttons sit over the
-       top of the mix sidebar, and the toolbar (also the drag area) fills the rest of the row. -->
+  <!-- One window-wide toolbar in the title bar, as macOS apps have it: the window buttons sit over the top of
+       the sidebar, which is there on every screen; the toolbar (also the drag area) fills the rest of the row. -->
   <div class="app">
     <div class="lights" data-tauri-drag-region></div>
-    <header class="bar" data-tauri-drag-region>
-      <div class="controls">
+    <div class="side"><Sidebar bind:place songTitle={opened?.song.title ?? ''} onOpen={openPath} /></div>
+
+    {#if !inPlayer || !song || !opened}
+      <header class="bar shelf" data-tauri-drag-region>
+        <h1 data-tauri-drag-region>{shelfTitle}</h1>
+        <span class="muted" data-tauri-drag-region>{s.songCount(maker.songs.length)}</span>
+        <span class="grow" data-tauri-drag-region></span>
         {#if maker.installed}
-          <button class="open" onclick={toLibrary}>{s.backToLibrary}</button>
-        {:else}
-          <button class="open" onclick={pick}>{s.open}</button>
+          <button class="primary add" onclick={() => (adding = '')}><span aria-hidden="true">＋</span> {s.addSong}</button>
         {/if}
-        <button class="restart" onclick={restart} aria-label={s.restart} title={s.restartTitle}>↺</button>
-        <button class="play" onclick={toggle} aria-label={playing ? s.pause : s.play} title={s.playTitle}
-          >{playing ? '❚❚' : '▶'}</button
-        >
-      </div>
-      <div class="now" data-tauri-drag-region>
-        {#if cover}
-          <img class="cover" src={cover} alt={song.cover?.album ?? s.cover} title={song.cover?.album ?? undefined} />
-        {:else}
-          <span class="cover blank" aria-hidden="true">♪</span>
-        {/if}
-        <div class="info" data-tauri-drag-region>
-          <div class="line" data-tauri-drag-region>
-            <h1>{song.title}</h1>
-            <p>
-              {#each details as d, i (i)}{i ? ' · ' : ''}{d.before}<b>{d.value}</b>{d.after}{/each}
-            </p>
-          </div>
-          <div class="scrub">
-            <span class="clock">{clock(mixSeconds)}</span>
-            <input
-              type="range"
-              min="0"
-              max={duration || 0}
-              step="0.1"
-              value={mixSeconds}
-              oninput={(e) => seekMix(Number(e.currentTarget.value))}
-              aria-label={s.position}
-              title="← → 5 s"
-            />
-            <span class="clock">-{clock(Math.max(0, duration - mixSeconds))}</span>
-          </div>
-        </div>
-      </div>
-      <div class="tools">
+        <button onclick={pick}>{s.openFolderShort}</button>
+        <input class="search" type="search" placeholder={s.search} aria-label={s.searchLabel} bind:value={query} />
         <AppUpdate />
         <ThemeToggle />
+      </header>
+      <div class="main">
+        <Library onOpen={openPath} shelf={place === 'player' || place === 'song' ? 'all' : place} {query} {error} />
       </div>
-    </header>
-
-    <nav class="tray" aria-label={s.mixes}>
-      <MixList bind:editing />
-      <MakingCard onOpen={openPath} />
-      <div class="foot"><Wordmark /></div>
-    </nav>
-
-    <div class="main">
-      {#if error}<p class="error banner" role="alert">{error}</p>{/if}
-      {#if editing && recipe}
-        <div class="tabs" role="tablist">
-          <button role="tab" aria-selected={editTab === 'mix'} onclick={() => (editTab = 'mix')}
-            >{s.mixTab(recipe.name)}</button
+    {:else}
+      <header class="bar" data-tauri-drag-region>
+        <div class="controls">
+          <button class="restart" onclick={restart} aria-label={s.restart} title={s.restartTitle}>↺</button>
+          <button class="play" onclick={toggle} aria-label={playing ? s.pause : s.play} title={s.playTitle}
+            >{playing ? '❚❚' : '▶'}</button
           >
-          <button role="tab" aria-selected={editTab === 'song'} onclick={() => (editTab = 'song')}>{s.songPanel}</button>
         </div>
-        {#if editTab === 'song'}
+        <div class="now" data-tauri-drag-region>
+          {#if cover}
+            <img class="cover" src={cover} alt={song.cover?.album ?? s.cover} title={song.cover?.album ?? undefined} />
+          {:else}
+            <span class="cover blank" aria-hidden="true">♪</span>
+          {/if}
+          <div class="info" data-tauri-drag-region>
+            <div class="line" data-tauri-drag-region>
+              <h1>{song.title}</h1>
+              <p>
+                {#each details as d, i (i)}{i ? ' · ' : ''}{d.before}<b>{d.value}</b>{d.after}{/each}
+              </p>
+            </div>
+            <div class="scrub">
+              <span class="clock">{clock(mixSeconds)}</span>
+              <input
+                type="range"
+                min="0"
+                max={duration || 0}
+                step="0.1"
+                value={mixSeconds}
+                oninput={(e) => seekMix(Number(e.currentTarget.value))}
+                aria-label={s.position}
+                title="← → 5 s"
+              />
+              <span class="clock">-{clock(Math.max(0, duration - mixSeconds))}</span>
+            </div>
+          </div>
+        </div>
+        <div class="tools">
+          <AppUpdate />
+          <ThemeToggle />
+        </div>
+      </header>
+
+      <div class="main">
+        {#if error}<p class="error banner" role="alert">{error}</p>{/if}
+        {#if place === 'song'}
           <SongPanel
             {opened}
             songSeconds={time}
-            transpose={recipe.transpose}
+            transpose={recipe?.transpose ?? 0}
             onChanged={songChanged}
-            onDeleted={toLibrary}
+            onDeleted={closeSong}
           />
         {:else}
-          <Mixer {recipe} song={opened.song} />
-        {/if}
-      {:else}
-      {#if !song.chords}
-        <p class="banner">{s.noChords[0]}<code>playalong chords</code>{s.noChords[1]}</p>
-      {/if}
-
-      <section class="stage" aria-label={s.chords}>
-        <figure class="current" aria-label={s.now}>
-          {#if now}
-            <ChordDiagram name={now.name} shape={song.chord_shapes[now.name]} width={128} />
-            <figcaption>{chordLabel(now.name)}</figcaption>
+          <div class="tabs" role="tablist">
+            <button role="tab" aria-selected={tab === 'chords'} onclick={() => (tab = 'chords')}>{s.chords}</button>
+            <button role="tab" aria-selected={tab === 'mixer'} onclick={() => (tab = 'mixer')}
+              >{s.mixerTab(recipe?.name ?? '')}</button
+            >
+          </div>
+          {#if tab === 'mixer' && recipe}
+            <Mixer {recipe} song={opened.song} />
           {:else}
-            <span class="idle">{count.phase === 'song' && time > 0 ? 'N.C.' : '—'}</span>
-          {/if}
-        </figure>
-        {#each coming as name, i (i)}
-          <figure class="coming" aria-label={i === 0 ? s.next : undefined}>
-            <ChordDiagram {name} shape={song.chord_shapes[name]} width={90} />
-            <figcaption>{chordLabel(name)}</figcaption>
-          </figure>
-        {/each}
-        <CountIn state={count} bars={mix?.count_in?.bars ?? 1} />
-      </section>
+            {#if !song.chords}
+              <p class="banner">{s.noChords[0]}<code>playalong chords</code>{s.noChords[1]}</p>
+            {/if}
 
-      <main class="sheet-wrap" bind:this={scroller}>
-        <ChordSheet {bars} shapes={song.chord_shapes} {time} onSeek={seekSong} viewport={scroller} />
-      </main>
-      {/if}
-    </div>
+            <section class="stage" aria-label={s.chords}>
+              <figure class="current" aria-label={s.now}>
+                {#if now}
+                  <ChordDiagram name={now.name} shape={song.chord_shapes[now.name]} width={128} />
+                  <figcaption>{chordLabel(now.name)}</figcaption>
+                {:else}
+                  <span class="idle">{count.phase === 'song' && time > 0 ? 'N.C.' : '—'}</span>
+                {/if}
+              </figure>
+              {#each coming as name, i (i)}
+                <figure class="coming" aria-label={i === 0 ? s.next : undefined}>
+                  <ChordDiagram {name} shape={song.chord_shapes[name]} width={90} />
+                  <figcaption>{chordLabel(name)}</figcaption>
+                </figure>
+              {/each}
+              <CountIn state={count} bars={mix?.count_in?.bars ?? 1} />
+            </section>
+
+            <main class="sheet-wrap" bind:this={scroller}>
+              <ChordSheet {bars} shapes={song.chord_shapes} {time} onSeek={seekSong} viewport={scroller} />
+            </main>
+          {/if}
+        {/if}
+      </div>
+    {/if}
+    {#if adding !== null}
+      <AddSong initial={adding} onClose={() => (adding = null)} />
+    {/if}
   </div>
 {/if}
-
 
 {#if dropping}
   <div class="drop" aria-hidden="true"><p>{s.drop}</p></div>
@@ -370,14 +384,59 @@
   .app {
     height: 100vh;
     display: grid;
-    grid-template-columns: 184px minmax(0, 1fr);
+    grid-template-columns: 210px minmax(0, 1fr);
     grid-template-rows: var(--titlebar) minmax(0, 1fr);
+    position: relative;
   }
   .lights,
-  .tray {
+  .side {
     grid-column: 1;
     background: var(--tray);
     border-right: 1px solid var(--hairline);
+  }
+  .side {
+    grid-row: 2;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .side > :global(nav) {
+    flex: 1;
+  }
+  .bar.shelf {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .bar.shelf h1 {
+    margin: 0;
+    font-size: 15px;
+  }
+  .bar.shelf .muted {
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .grow {
+    flex: 1;
+  }
+  .bar.shelf button {
+    font-size: 13px;
+    padding: 5px 12px;
+  }
+  /* The one thing to do here: as prominent as the window's other controls allow. */
+  .bar.shelf .add {
+    font-weight: 600;
+    padding: 6px 14px;
+  }
+  .search {
+    width: 190px;
+    font: inherit;
+    font-size: 13px;
+    padding: 5px 10px;
+    border-radius: 7px;
+    border: 1px solid var(--hairline);
+    background: var(--panel);
+    color: var(--ink);
   }
   .lights {
     grid-row: 1;
@@ -501,34 +560,7 @@
     align-items: center;
     gap: 6px;
   }
-  .open {
-    font-size: 12px;
-    padding: 3px 10px;
-    border-radius: 7px;
-    background: transparent;
-  }
-  /* First in the toolbar, before the round playback buttons, and shaped like the other text buttons. */
-  .controls .open {
-    display: block;
-    margin-right: 6px;
-    padding: 3px 10px;
-    border-radius: 7px;
-    white-space: nowrap;
-  }
 
-  .tray {
-    grid-row: 2;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    padding: 4px 8px 12px;
-    overflow-y: auto;
-  }
-  .foot {
-    margin-top: auto;
-    padding: 16px 8px 0;
-    opacity: 0.85;
-  }
   .tabs {
     display: inline-flex;
     align-self: flex-start;

@@ -73,7 +73,9 @@ export async function startMaker() {
   // without it, and setting up says what went wrong.
   void invoke<Check>('runtime_check')
     .catch(() => null)
-    .then((check) => (maker.check = check));
+    .then((check) => {
+      maker.check = check;
+    });
 }
 
 export async function installTools() {

@@ -5,6 +5,7 @@ import {
   isYouTube,
   keyShort,
   matches,
+  shownSongs,
   megabytes,
   progressOf,
   progressText,
@@ -94,5 +95,20 @@ describe('progress while making a song', () => {
   it('says the time left in words', () => {
     expect(timeLeft(150, s)).toBe('about 3 min left');
     expect(timeLeft(40, s)).toBe('less than a minute left');
+  });
+});
+
+describe('library shelves', () => {
+  const song = (title: string, daysAgo: number) => ({
+    folder: `/m/${title}`, title, artist: 'Band', key: null, bpm: null, mixes: 3, transposed: [], cover: null,
+    added: 1_800_000_000 - daysAgo * 86400,
+  });
+  const songs = [song('Fresh', 1), song('Week old', 6), song('Old', 30)];
+  const now = 1_800_000_000;
+
+  it('shows all songs, or the ones added in the last week, narrowed by the search', () => {
+    expect(shownSongs(songs, 'all', '', now).map((x) => x.title)).toEqual(['Fresh', 'Week old', 'Old']);
+    expect(shownSongs(songs, 'recent', '', now).map((x) => x.title)).toEqual(['Fresh', 'Week old']);
+    expect(shownSongs(songs, 'recent', 'fre', now).map((x) => x.title)).toEqual(['Fresh']);
   });
 });

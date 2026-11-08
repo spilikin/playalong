@@ -1,7 +1,7 @@
 <script lang="ts">
-  // The song's mixes in the sidebar. Playing: click one to hear it, keeping the place in the song. Editing
-  // (Edit ↔ Done): the same rows, dragged with the mouse to reorder, and a right-click menu to rename,
-  // duplicate, export or delete; + New mix at the end. The main area shows the mixer and the song meanwhile.
+  // The song's mixes in the sidebar, under its Song item: click one to hear it (keeping the place in the
+  // song), drag one with the mouse to move it, right-click it to rename, duplicate, export or delete it.
+  // There's no edit mode: the mixer is a tab of the main area.
   import { invoke } from '@tauri-apps/api/core';
   import { tick } from 'svelte';
   import MixIcon from './MixIcon.svelte';
@@ -9,7 +9,7 @@
   import { describeMix, newMixFrom, type Recipe } from './mixes';
   import { chooseMix, currentMix, flushSave, playback, saveMixes, updateMix } from './playback.svelte';
 
-  let { editing = $bindable(false) }: { editing?: boolean } = $props();
+  let { onChoose = () => {} }: { onChoose?: () => void } = $props();
 
   const s = $derived(strings());
   let menu = $state<{ id: string; x: number; y: number } | null>(null);
@@ -79,7 +79,6 @@
   }
 
   function openMenu(e: MouseEvent, m: Recipe) {
-    if (!editing) return;
     e.preventDefault();
     menu = { id: m.id, x: e.clientX, y: e.clientY };
   }
@@ -101,7 +100,7 @@
   }
 
   function pointerDown(e: PointerEvent, i: number) {
-    if (!editing || e.button !== 0 || renaming) return;
+    if (e.button !== 0 || renaming) return;
     press = { from: i, y: e.clientY };
     dragged = false;
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
@@ -130,26 +129,13 @@
       return;
     }
     void chooseMix(m.id);
+    onChoose();
   }
 </script>
 
 <svelte:window onclick={() => (menu = null)} onkeydown={(e) => e.key === 'Escape' && (menu = null)} />
 
-<div class="head">
-  <h2>{s.mixes}</h2>
-  <button
-    class="toggle"
-    aria-pressed={editing}
-    onclick={() => {
-      editing = !editing;
-      renaming = null;
-    }}
-  >
-    {editing ? s.done : s.editMixes}
-  </button>
-</div>
-
-<div class="list" class:editing bind:this={list}>
+<div class="list" bind:this={list}>
   {#each playback.mixes as m, i (m.id)}
     {#if dropAt === i}<div class="drop-line" data-testid="drop-line"></div>{/if}
     {#if renaming === m.id}
@@ -176,7 +162,7 @@
         data-row
         aria-pressed={m.id === playback.current}
         aria-label={`${m.name}, ${describeMix(m, s)}`}
-        title={editing ? s.editHint : i < 9 ? `${describeMix(m, s)} (${i + 1})` : describeMix(m, s)}
+        title={i < 9 ? `${describeMix(m, s)} (${i + 1})` : describeMix(m, s)}
         onclick={() => choose(m)}
         oncontextmenu={(e) => openMenu(e, m)}
         onpointerdown={(e) => pointerDown(e, i)}
@@ -191,12 +177,9 @@
   {#if dropAt === playback.mixes.length}<div class="drop-line" data-testid="drop-line"></div>{/if}
 </div>
 
-{#if editing}
-  <button class="new" onclick={() => void add(currentMix() ?? playback.mixes[0], playback.mixes.length)}
-    >{s.newMix}</button
-  >
-  <p class="hint">{s.editHint}</p>
-{/if}
+<button class="new" onclick={() => void add(currentMix() ?? playback.mixes[0], playback.mixes.length)}
+  >{s.newMix}</button
+>
 {#if menu}
   <div class="menu" role="menu" style:left="{menu.x}px" style:top="{menu.y}px">
     <button role="menuitem" onclick={() => act((m) => void startRename(m))}>{s.rename}</button>
@@ -214,37 +197,11 @@
 {#if status}<p class="status" role="status">{status}</p>{/if}
 
 <style>
-  .head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin: 4px 6px 6px;
-  }
-  h2 {
-    margin: 0;
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--muted);
-  }
-  /* A pill apart from the list: it changes what the sidebar and the main area are for, not what plays. */
-  .toggle {
-    font-size: 12px;
-    font-weight: 600;
-    padding: 2px 11px;
-    border-radius: 11px;
-    border-color: var(--accent);
-    color: var(--accent);
-  }
-  .toggle[aria-pressed='true'] {
-    background: var(--accent);
-    color: var(--on-accent);
-  }
   .list {
     display: flex;
     flex-direction: column;
   }
-  .list.editing .mix {
+  .list .mix {
     cursor: grab;
     touch-action: none;
     -webkit-user-select: none;
@@ -325,11 +282,6 @@
     color: var(--accent);
     font-weight: 600;
     font-size: 13px;
-  }
-  .hint {
-    margin: 8px 6px 0;
-    font-size: 11px;
-    color: var(--muted);
   }
   .menu {
     position: fixed;

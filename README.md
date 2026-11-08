@@ -243,12 +243,13 @@ the first start is refused: open it once, then **System Settings › Privacy & S
 On first start it offers to download the audio tools (the [portable runtime](#portable-runtime) and the
 separation model, about 490 MB, 1.5 GB unpacked, into `~/Library/Application Support/dev.playalong`;
 downloads in progress and caches go to `~/Library/Caches/dev.playalong`).
-After that it opens on the **Library**, the songs in `~/Music/Playalong`: paste a YouTube link (or drop
-or choose an audio file) and **Make song**: it downloads the song, splits it into instruments and finds
-the chords, then opens it. Mixes play live from the instruments, so nothing is rendered: every song
-starts with Original, Guide and No guitar, and any change is heard at once while the song plays. A song
-made before mixes were live is brought up to date the first time it opens (its rendered mixes go). Songs
-made elsewhere open with **Open folder…** or by dropping a folder on the window.
+After that it opens on the **Library**: the sidebar (there on every screen) has All Songs, Recently Added
+and, while one is made, Being Made; the toolbar has **＋ Add Song**, Open folder… and the search. Add Song
+takes a YouTube link or an audio file (or drop one on the window): it downloads the song, splits it into
+instruments and finds the chords. Mixes play live from the instruments, so nothing is rendered: every
+song starts with Original, Guide and No guitar, and any change is heard at once. A song made before mixes
+were live is brought up to date the first time it opens (its rendered mixes go). Songs in
+`~/Music/Playalong` are listed; others open with **Open folder…** or by dropping a folder on the window.
 
 ### Updates
 
@@ -286,23 +287,18 @@ so keep a backup of both.
 
 ### Using it
 
-- The toolbar sits in the window's title bar: ‹ Library, Restart and Play, the album cover with title,
-  key, tempo and position, and in the right corner (as on every screen) a light/dark toggle (the
-  system's appearance until you use it).
-- The sidebar lists the song's mixes with what each one changes ("guitar off · −2 · 90%"); keys 1–9
-  switch. Switching keeps your place in the song; a mix in another key shows the key, chords and
-  shapes moved with it.
-- **Edit** at the top of the list turns it into an editor (**Done** goes back): drag a mix to move it,
-  right-click it to rename, duplicate, export or delete it, and **+ New mix** adds one. The main area gets
-  two tabs: **Mix**, the selected mix's mixer (key, tempo and count-in, and per instrument a level, Mute
-  and Solo, plus presets to start from), heard and kept at once while the song plays; and **Song**, what
-  belongs to the song: where it starts (typed, or set to the playhead), its BPM (typed or tapped),
-  finding the chords again, GarageBand projects per key, and deleting the song. A new start or tempo
-  finds chords and bars again in the background, then the song plays on.
-- **Export MP3…** writes the mix as it's set to `exports/` in the song folder and shows it in Finder.
-- The chord strip stays put; only the bars scroll. Click a bar to jump there.
-- Keys: Space play/pause · ← → 5 s · Home: back to the start (count-in included) · 1–9 mixes.
-- The count-in plays when a mix starts from the top.
+- The open song is a tree in the sidebar: **Song** first (where it starts, typed or set to the playhead;
+  its BPM, typed or tapped; finding the chords again; GarageBand projects per key; deleting the song),
+  then its mixes with what each changes ("guitar off · −2 · 90%"). Browsing the Library keeps it playing.
+- Click a mix to hear it, keeping your place; keys 1–9 do the same. Drag a mix to move it; right-click it
+  to rename, duplicate, export as MP3 or delete it; **+ New mix** adds one.
+- The playing mix has two tabs: **Chords** (the chord strip and the song in bars; click a bar to jump
+  there) and **Mixer** (key, tempo, count-in, and per instrument a level, Mute and Solo, plus presets to
+  start from), every change heard and kept at once.
+- The toolbar sits in the window's title bar: Restart and Play, the album cover with title, key, tempo
+  and position, and in the right corner (as on every screen) a light/dark toggle.
+- Keys: Space play/pause · ← → 5 s · Home: back to the start (count-in included) · 1–9 mixes. The
+  count-in plays when a mix starts from the top.
 
 The icon is the Fmaj7 shape on a carmine tile (the Latvian flag's red), with a dark variant for the
 Mac's dark icon style. `app/scripts/make_icon.py` draws it and `app/scripts/icons.sh` renders the

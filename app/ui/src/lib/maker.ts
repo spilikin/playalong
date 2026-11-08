@@ -128,3 +128,13 @@ export function addedLabel(seconds: number, now: Date, lang: Lang, s: Strings): 
   if (when.toDateString() === now.toDateString()) return s.today;
   return new Intl.DateTimeFormat(lang === 'lv' ? 'lv' : 'en-US', { month: 'short', day: 'numeric' }).format(when);
 }
+
+/** What the sidebar's Library section shows: every song, the last week's, or the one being made. */
+export type Shelf = 'all' | 'recent' | 'making';
+/** What the main area shows: a Library shelf, the playing mix, or the song's own settings. */
+export type Place = Shelf | 'player' | 'song';
+const WEEK = 7 * 24 * 60 * 60;
+
+export function shownSongs(songs: LibrarySong[], shelf: Shelf, query: string, now: number): LibrarySong[] {
+  return songs.filter((song) => (shelf !== 'recent' || now - song.added <= WEEK) && matches(song, query));
+}

@@ -69,7 +69,7 @@ describe('player', () => {
   async function openSong() {
     render(Page);
     await fireEvent.click(await screen.findByRole('button', { name: 'Open song folder…' }));
-    return screen.findByRole('heading', { name: 'Kad izdzisīs' });
+    return screen.findByRole('heading', { name: 'Kad izdzisīs', level: 1 });
   }
 
   it('opens a song folder and plays its mixes live, the first one chosen', async () => {
@@ -125,7 +125,7 @@ describe('player', () => {
     ipc.song_refresh = () => opened;
     render(Page);
     await fireEvent.click(await screen.findByRole('button', { name: 'Open folder…' }));
-    await screen.findByRole('heading', { name: 'Kad izdzisīs' });
+    await screen.findByRole('heading', { name: 'Kad izdzisīs', level: 1 });
     const order = calls.map((c) => c.cmd).filter((c) => c === 'song_refresh' || c === 'playback_open');
     expect(order).toEqual(['song_refresh', 'playback_open']);
   });
@@ -141,7 +141,7 @@ describe('player', () => {
     render(Page);
     await settle();
     answer({ installed: { version: '2026.11.08', series: 1, commit: 'abc', model: 'sw' }, busy: false });
-    await screen.findByRole('heading', { name: 'Kad izdzisīs' });
+    await screen.findByRole('heading', { name: 'Kad izdzisīs', level: 1 });
     expect(calls.some((c) => c.cmd === 'song_refresh')).toBe(true);
   });
 
@@ -169,7 +169,7 @@ describe('player', () => {
   it('remembers opened songs for next time', async () => {
     const first = render(Page);
     await fireEvent.click(await screen.findByRole('button', { name: 'Open song folder…' }));
-    await screen.findByRole('heading', { name: 'Kad izdzisīs' });
+    await screen.findByRole('heading', { name: 'Kad izdzisīs', level: 1 });
     first.unmount();
     render(Page);
     await fireEvent.click(await screen.findByRole('button', { name: 'kad-izdzisis' }));
@@ -183,14 +183,14 @@ describe('Roks ir dzīvs!', () => {
     await fireEvent.click(await screen.findByRole('button', { name: 'Open song folder…' }));
     const mark = await screen.findByLabelText('Roks ir dzīvs!');
     await fireEvent.click(mark, { detail: 1 });
-    expect(screen.getByRole('button', { name: 'Open…' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Song' })).toBeTruthy();
     await fireEvent.click(mark, { detail: 3 });
-    expect(screen.getByRole('button', { name: 'Atvērt…' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Dziesma' })).toBeTruthy();
     first.unmount();
     render(Page);
     await fireEvent.click(await screen.findByRole('button', { name: 'Atvērt dziesmas mapi…' }));
     await fireEvent.click(await screen.findByLabelText('Roks ir dzīvs!'), { detail: 3 });
-    expect(screen.getByRole('button', { name: 'Open…' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Song' })).toBeTruthy();
   });
 });
 
@@ -199,7 +199,7 @@ describe('restart', () => {
     const scrollTo = vi.fn();
     const { container } = render(Page);
     await fireEvent.click(await screen.findByRole('button', { name: 'Open song folder…' }));
-    await screen.findByRole('heading', { name: 'Kad izdzisīs' });
+    await screen.findByRole('heading', { name: 'Kad izdzisīs', level: 1 });
     (container.querySelector('.sheet-wrap') as HTMLElement).scrollTo = scrollTo;
     await heard(42);
     await fireEvent.click(screen.getByRole('button', { name: 'Restart' }));
@@ -231,7 +231,7 @@ describe('library', () => {
     render(Page);
     await fireEvent.click(await screen.findByRole('button', { name: 'Download audio tools · 490 MB' }));
     expect(calls.some((c) => c.cmd === 'runtime_install')).toBe(true);
-    expect(await screen.findByRole('heading', { name: 'Library' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: 'All Songs', level: 1 })).toBeTruthy();
   });
 
   it('lists the songs, finds them by name and opens one', async () => {
@@ -244,7 +244,7 @@ describe('library', () => {
     expect(screen.getByText('No songs match.')).toBeTruthy();
     await fireEvent.input(screen.getByRole('searchbox', { name: 'Search songs' }), { target: { value: 'miks' } });
     await fireEvent.click(screen.getByRole('button', { name: /Kad izdzisīs/ }));
-    expect(await screen.findByRole('heading', { name: 'Kad izdzisīs' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: 'Kad izdzisīs', level: 1 })).toBeTruthy();
     expect(calls.find((c) => c.cmd === 'open_song')?.args).toEqual({ path: '/m/Playalong/kad' });
   });
 
@@ -252,24 +252,41 @@ describe('library', () => {
     withTools();
     ipc.make_song = () => opened;
     render(Page);
-    await fireEvent.input(await screen.findByRole('textbox', { name: 'YouTube link or audio file' }), {
+    await fireEvent.click(await screen.findByRole('button', { name: /Add Song/ }));
+    const sheet = within(screen.getByRole('form', { name: 'Add Song' }));
+    await fireEvent.input(sheet.getByRole('textbox', { name: 'YouTube link or audio file' }), {
       target: { value: 'https://youtu.be/x' },
     });
-    expect(screen.queryByRole('button', { name: 'Down a semitone' })).toBeNull();
-    await fireEvent.click(screen.getByRole('button', { name: 'Make song' }));
-    expect(await screen.findByRole('heading', { name: 'Kad izdzisīs' })).toBeTruthy();
+    await fireEvent.click(sheet.getByRole('button', { name: 'Add Song' }));
+    expect(await screen.findByRole('heading', { name: 'Kad izdzisīs', level: 1 })).toBeTruthy();
     expect(calls.find((c) => c.cmd === 'make_song')?.args).toEqual({
       source: 'https://youtu.be/x',
       library: '/m/Playalong',
     });
   });
 
+  it('the sidebar shows all songs or the recently added ones', async () => {
+    withTools();
+    const old = { ...song, folder: '/m/Playalong/old', title: 'Old one', added: Date.now() / 1000 - 30 * 86400 };
+    const fresh = { ...song, added: Date.now() / 1000 - 86400 };
+    ipc.list_library = () => [fresh, old];
+    render(Page);
+    expect(await screen.findByRole('button', { name: /Old one/ })).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: /^Recently Added/ }));
+    expect(screen.getByRole('heading', { name: 'Recently Added', level: 1 })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Old one/ })).toBeNull();
+    expect(screen.getByRole('button', { name: /Kad izdzisīs/ })).toBeTruthy();
+  });
+
   it('goes back from the player to the Library', async () => {
     withTools();
     render(Page);
     await fireEvent.click(await screen.findByRole('button', { name: /Kad izdzisīs/ }));
-    await fireEvent.click(await screen.findByRole('button', { name: '‹ Library' }));
-    expect(await screen.findByRole('heading', { name: 'Library' })).toBeTruthy();
+    await screen.findByRole('heading', { name: 'Kad izdzisīs', level: 1 });
+    await fireEvent.click(await screen.findByRole('button', { name: /^All Songs/ }));
+    expect(await screen.findByRole('heading', { name: 'All Songs', level: 1 })).toBeTruthy();
+    expect(calls.some((c) => c.cmd === 'playback_close')).toBe(false);
+    expect(screen.getByRole('button', { name: /^Original,/ })).toBeTruthy();
   });
 
   it('says why a song could not be made', async () => {
@@ -278,10 +295,12 @@ describe('library', () => {
       throw 'ERROR: Video unavailable';
     };
     render(Page);
-    await fireEvent.input(await screen.findByRole('textbox', { name: 'YouTube link or audio file' }), {
+    await fireEvent.click(await screen.findByRole('button', { name: /Add Song/ }));
+    const sheet = within(screen.getByRole('form', { name: 'Add Song' }));
+    await fireEvent.input(sheet.getByRole('textbox', { name: 'YouTube link or audio file' }), {
       target: { value: 'https://youtu.be/gone' },
     });
-    await fireEvent.click(screen.getByRole('button', { name: 'Make song' }));
+    await fireEvent.click(sheet.getByRole('button', { name: 'Add Song' }));
     expect(await screen.findByText('ERROR: Video unavailable')).toBeTruthy();
   });
 });
@@ -290,26 +309,25 @@ describe('editing mixes', () => {
   async function openSong() {
     render(Page);
     await fireEvent.click(await screen.findByRole('button', { name: 'Open song folder…' }));
-    await screen.findByRole('heading', { name: 'Kad izdzisīs' });
+    await screen.findByRole('heading', { name: 'Kad izdzisīs', level: 1 });
   }
 
   async function edit() {
     await openSong();
-    await fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    await fireEvent.click(screen.getByRole('tab', { name: /^Mixer/ }));
     return within(await screen.findByRole('region', { name: 'Mixer' }));
   }
 
   const lastMix = () =>
     (calls.filter((c) => c.cmd === 'playback_set_mix').at(-1)?.args as { recipe: Recipe } | undefined)?.recipe;
 
-  it('Edit shows the mixer of the mix playing in place of the chords, Done goes back', async () => {
+  it('the Mixer tab shows the playing mix’s mixer in place of the chords, with no mode to switch', async () => {
     const mixer = await edit();
-    expect(screen.getByRole('button', { name: 'Done', pressed: true })).toBeTruthy();
-    expect(screen.getByRole('tab', { name: 'Mix · Original', selected: true })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: 'Mixer · Original', selected: true })).toBeTruthy();
     expect(mixer.getByRole('slider', { name: 'Guitar' })).toBeTruthy();
     expect(screen.queryByRole('region', { name: 'Chords' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Song…' })).toBeNull();
-    await fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();
+    await fireEvent.click(screen.getByRole('tab', { name: 'Chords' }));
     expect(screen.getByRole('region', { name: 'Chords' })).toBeTruthy();
   });
 
@@ -411,9 +429,8 @@ describe('song editing', () => {
   async function songPanel() {
     render(Page);
     await fireEvent.click(await screen.findByRole('button', { name: 'Open song folder…' }));
-    await screen.findByRole('heading', { name: 'Kad izdzisīs' });
-    await fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
-    await fireEvent.click(screen.getByRole('tab', { name: 'Song' }));
+    await screen.findByRole('heading', { name: 'Kad izdzisīs', level: 1 });
+    await fireEvent.click(screen.getByRole('button', { name: 'Song' }));
     return within(await screen.findByRole('region', { name: 'Song' }));
   }
 
@@ -472,14 +489,13 @@ describe('song editing', () => {
     ipc['plugin:dialog|message'] = () => 'Move to Trash';
     render(Page);
     await fireEvent.click(await screen.findByRole('button', { name: 'Open folder…' }));
-    await screen.findByRole('heading', { name: 'Kad izdzisīs' });
-    await fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
-    await fireEvent.click(screen.getByRole('tab', { name: 'Song' }));
+    await screen.findByRole('heading', { name: 'Kad izdzisīs', level: 1 });
+    await fireEvent.click(screen.getByRole('button', { name: 'Song' }));
     await fireEvent.click(await screen.findByRole('button', { name: 'Delete song…' }));
     await waitFor(() =>
       expect(calls.find((c) => c.cmd === 'delete_song')?.args).toEqual({ folder: '/lib/kad-izdzisis', library: '/m/Playalong' }),
     );
-    expect(await screen.findByRole('heading', { name: 'Library' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: 'All Songs', level: 1 })).toBeTruthy();
   });
 });
 
@@ -494,7 +510,7 @@ describe('after the review', () => {
   async function openSong() {
     render(Page);
     await fireEvent.click(await screen.findByRole('button', { name: /^Open (song )?folder…$/ }));
-    await screen.findByRole('heading', { name: 'Kad izdzisīs' });
+    await screen.findByRole('heading', { name: 'Kad izdzisīs', level: 1 });
   }
 
   it('a job that finishes after leaving the song does not pull the player back to it', async () => {
@@ -502,15 +518,17 @@ describe('after the review', () => {
     let finish: (v: unknown) => void = () => {};
     ipc.song_retime = () => new Promise((resolve) => (finish = resolve));
     await openSong();
-    await fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
-    await fireEvent.click(screen.getByRole('tab', { name: 'Song' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Song' }));
     await fireEvent.click(await screen.findByRole('button', { name: 'Detect again' }));
-    await fireEvent.click(screen.getByRole('button', { name: '‹ Library' }));
-    await screen.findByRole('heading', { name: 'Library' });
+    const other = { ...opened, folder: '/lib/other', song: { ...opened.song, title: 'Other song' } };
+    openResult = other;
+    await fireEvent.click(screen.getByRole('button', { name: /^All Songs/ }));
+    await fireEvent.click(await screen.findByRole('button', { name: /Open folder…/ }));
+    await screen.findByRole('heading', { name: 'Other song', level: 1 });
     finish(opened);
     await settle();
-    expect(calls.filter((c) => c.cmd === 'playback_open')).toHaveLength(1);
-    expect(screen.getByRole('heading', { name: 'Library' })).toBeTruthy();
+    expect(calls.filter((c) => c.cmd === 'playback_open')).toHaveLength(2);
+    expect(screen.getByRole('heading', { name: 'Other song', level: 1 })).toBeTruthy();
   });
 
   it('says when the mixes could not be saved', async () => {
@@ -518,7 +536,6 @@ describe('after the review', () => {
       throw "can't save the mixes: Permission denied";
     };
     await openSong();
-    await fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
     await fireEvent.contextMenu(screen.getByRole('button', { name: /^Guide,/ }));
     await fireEvent.click(screen.getByRole('menuitem', { name: 'Rename…' }));
     await fireEvent.input(screen.getByRole('textbox', { name: 'Name of Guide' }), { target: { value: 'Band' } });
@@ -529,7 +546,6 @@ describe('after the review', () => {
   it('saves a just-duplicated mix before exporting it', async () => {
     ipc.song_export = () => '/lib/kad-izdzisis/exports/kad - Guide copy.mp3';
     await openSong();
-    await fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
     await fireEvent.contextMenu(screen.getByRole('button', { name: /^Guide,/ }));
     await fireEvent.click(screen.getByRole('menuitem', { name: 'Duplicate' }));
     await fireEvent.keyDown(screen.getByRole('textbox', { name: 'Name of Guide copy' }), { key: 'Enter' });
