@@ -206,6 +206,10 @@ YouTube changes often and yt-dlp keeps up within days, so the downloader updates
 `playalong update-downloader` puts the newest yt-dlp and yt-dlp-ejs into the runtime's `downloader/`
 folder, ahead of the ones it came with. A download that fails for any reason other than a login says so.
 
+Apart from `downloader/`, nothing is written into the runtime or the app: Python's bytecode and deno's
+and yt-dlp's caches go to `~/Library/Caches/dev.playalong` (or `$PLAYALONG_CACHE`), which can be deleted
+any time. Temporary files go to the system's temp folder.
+
 ## Player app
 
 A small macOS app (Tauri 2 + Svelte, in `app/`) that makes songs and plays them: one of a song's mixes
@@ -220,7 +224,8 @@ the first start is refused: open it once, then **System Settings › Privacy & S
 (or run `xattr -dr com.apple.quarantine /Applications/Playalong.app`).
 
 On first start it offers to download the audio tools (the [portable runtime](#portable-runtime) and the
-separation model, about 490 MB, 1.5 GB unpacked, into `~/Library/Application Support/dev.playalong`).
+separation model, about 490 MB, 1.5 GB unpacked, into `~/Library/Application Support/dev.playalong`;
+downloads in progress and caches go to `~/Library/Caches/dev.playalong`).
 After that it opens on the **Library**, the songs in `~/Music/Playalong`: paste a YouTube link (or drop
 or choose an audio file), pick a key, **Make song**, and it runs the CLI's `run` and opens the song when
 it's done. Songs made elsewhere open with **Open folder…** or by dropping a folder on the window.

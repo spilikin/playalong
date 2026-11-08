@@ -34,13 +34,16 @@ here="$(cd "$(dirname "$0")/.." && pwd -P)"
 export PATH="$here/bin:$PATH"
 export BS_ROFORMER_MODELS_PATH="$here/models"
 export PLAYALONG_RUNTIME="$here"
+# Caches (bytecode, deno, yt-dlp) live where macOS expects them and can be deleted any time; the app names
+# the same folder. Nothing is written into the runtime or the app bundle, which stays as it was signed.
+export PLAYALONG_CACHE="${PLAYALONG_CACHE:-$HOME/Library/Caches/dev.playalong}"
+export DENO_DIR="$PLAYALONG_CACHE/deno"
 # Import order: a newer yt-dlp from `playalong update-downloader`, then the app's own playalong code
 # (PLAYALONG_CODE, set by the app so its song files and the CLI always match), then the runtime's.
 exec "$here/python/bin/python3" -I -c '
 import os, sys
 code = os.environ.get("PLAYALONG_CODE")
-# Bytecode goes to the runtime, never next to the code: the app bundle has to stay as it was signed.
-sys.pycache_prefix = os.path.join(os.environ["PLAYALONG_RUNTIME"], "pycache")
+sys.pycache_prefix = os.path.join(os.environ["PLAYALONG_CACHE"], "pycache")
 sys.path[0:0] = [os.path.join(os.environ["PLAYALONG_RUNTIME"], "downloader"), *([code] if code else [])]
 sys.argv[0] = "playalong"
 from playalong import main
@@ -154,11 +157,11 @@ def _model(dest: Path) -> None:
         shutil.copy2(f, folder / f.name)
 
 
-def _version() -> dict:
+def _version(version: str | None = None) -> dict:
     commit = run("git", "rev-parse", "--short", "HEAD", cwd=ROOT).strip()
     dirty = bool(run("git", "status", "--porcelain", "--untracked-files=no", cwd=ROOT).strip())
     today = datetime.date.today()
-    return {"version": f"{today:%Y.%m.%d}", "series": SERIES, "commit": commit + ("-dirty" if dirty else ""),
+    return {"version": version or f"{today:%Y.%m.%d}", "series": SERIES, "commit": commit + ("-dirty" if dirty else ""),
             "python": platform.python_version(), "arch": platform.machine(), "built": today.isoformat()}
 
 
@@ -179,6 +182,7 @@ def _check(out: Path) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--out", type=Path, default=ROOT / "dist", help="where the runtime folder goes")
+    parser.add_argument("--version", help="instead of today's date, e.g. 2026.11.08.2 for a second one that day")
     args = parser.parse_args()
     if platform.system() != "Darwin" or platform.machine() != "arm64":
         raise SystemExit("builds on Apple Silicon Macs only")
@@ -193,7 +197,7 @@ def main() -> None:
     launcher = out / "bin" / "playalong"
     launcher.write_text(LAUNCHER)
     launcher.chmod(0o755)
-    info = _version()
+    info = _version(args.version)
     (out / "runtime.json").write_text(json.dumps(info, indent=2) + "\n")
     _check(out)
     size = run("du", "-sh", out).split()[0]

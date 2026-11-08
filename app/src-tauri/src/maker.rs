@@ -107,6 +107,11 @@ fn root(app: &AppHandle) -> Result<PathBuf, String> {
     app.path().app_data_dir().map_err(|e| format!("can't find the app's data folder: {e}"))
 }
 
+/// `~/Library/Caches/dev.playalong`: bytecode, deno, yt-dlp and downloads in progress, all safe to delete.
+fn cache(app: &AppHandle) -> Result<PathBuf, String> {
+    app.path().app_cache_dir().map_err(|e| format!("can't find the app's cache folder: {e}"))
+}
+
 fn code(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(app.path().resource_dir().map_err(|e| format!("can't find the app's resources: {e}"))?.join("python"))
 }
@@ -150,13 +155,14 @@ struct Progress {
 #[tauri::command]
 pub async fn runtime_install(app: AppHandle) -> Result<Option<Installed>, String> {
     let root = root(&app)?;
+    let cache = cache(&app)?;
     tauri::async_runtime::spawn_blocking(move || {
         let maker = app.state::<Maker>();
         let _busy = maker.begin("setting up the runtime")?;
         let current = root.join("runtime");
         let manifest = runtime::fetch_manifest(runtime::MANIFEST_URL)?;
         let plan = runtime::plan(runtime::installed(&current).as_ref(), &manifest)?;
-        let downloads = runtime::Downloads::new(&root)?;
+        let downloads = runtime::Downloads::new(&cache)?;
         let fetched = |stage: &'static str, archive: &runtime::Archive| -> Result<PathBuf, String> {
             let to = downloads.path().join(&archive.file);
             let total = archive.size;
@@ -169,6 +175,9 @@ pub async fn runtime_install(app: AppHandle) -> Result<Option<Installed>, String
         let model_file = plan.model.as_ref().map(|a| fetched("model", a)).transpose()?;
         let _ = app.emit("runtime-progress", Progress { stage: "unpack", done: 0, total: 0 });
         runtime::install(&root, runtime_file.as_deref(), model_file.as_deref())?;
+        if runtime_file.is_some() {
+            runtime::forget_bytecode(&cache);
+        }
         Ok(runtime::installed(&current))
     })
     .await
@@ -188,6 +197,7 @@ struct Line {
 pub async fn make_song(app: AppHandle, source: String, library: String, transpose: i32) -> Result<OpenedSong, String> {
     let root = root(&app)?;
     let code = code(&app)?;
+    let cache = cache(&app)?;
     let handle = app.clone();
     let folder = tauri::async_runtime::spawn_blocking(move || -> Result<PathBuf, String> {
         let maker = handle.state::<Maker>();
@@ -200,7 +210,7 @@ pub async fn make_song(app: AppHandle, source: String, library: String, transpos
         let emit = |line: &str| {
             let _ = handle.emit("make-song-line", Line { line: line.to_string() });
         };
-        let env = [("PLAYALONG_CODE", code.as_path())];
+        let env = [("PLAYALONG_CODE", code.as_path()), ("PLAYALONG_CACHE", cache.as_path())];
         let update_downloader = || {
             emit("Checking for a newer YouTube downloader");
             let _ = maker.run_cli(&runtime_dir, &["update-downloader".to_string()], &env, emit);

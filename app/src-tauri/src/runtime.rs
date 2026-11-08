@@ -220,13 +220,19 @@ fn install_model(runtime: &Path, model: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// Python's bytecode for a runtime that's been replaced. The archives give every file the same time, so
+/// a changed file of the same size would otherwise still run from its old bytecode.
+pub fn forget_bytecode(cache: &Path) {
+    let _ = fs::remove_dir_all(cache.join("pycache"));
+}
+
 /// Where archives wait to be unpacked. Leftovers of an earlier attempt go first, and the folder goes when
 /// this is dropped, so a failed or interrupted download can't keep hundreds of MB (or a full disk) around.
 pub struct Downloads(PathBuf);
 
 impl Downloads {
-    pub fn new(root: &Path) -> Result<Downloads, String> {
-        let dir = root.join("downloads");
+    pub fn new(cache: &Path) -> Result<Downloads, String> {
+        let dir = cache.join("downloads");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).map_err(|e| format!("can't create {}: {e}", dir.display()))?;
         Ok(Downloads(dir))
@@ -513,5 +519,17 @@ mod tests {
         let begun = std::time::Instant::now();
         let result = http(std::time::Duration::from_millis(300)).unwrap().get(format!("http://{address}/rt")).send();
         assert!(result.is_err() && begun.elapsed().as_secs() < 5);
+    }
+
+    #[test]
+    fn a_new_runtime_starts_with_fresh_bytecode() {
+        let cache = tempfile::tempdir().unwrap();
+        let pyc = cache.path().join("pycache/Users/x/site-packages/a.cpython-312.pyc");
+        fs::create_dir_all(pyc.parent().unwrap()).unwrap();
+        fs::write(&pyc, b"old").unwrap();
+        fs::create_dir_all(cache.path().join("yt-dlp")).unwrap();
+        forget_bytecode(cache.path());
+        assert!(!cache.path().join("pycache").exists());
+        assert!(cache.path().join("yt-dlp").exists(), "other caches stay");
     }
 }

@@ -92,3 +92,11 @@ def test_run_and_download_take_a_browser():
     parse = build_parser().parse_args
     assert parse(["run", "https://youtu.be/x", "--cookies-from-browser", "chrome"]).browser == "chrome"
     assert parse(["download", "https://youtu.be/x"]).browser is None
+
+
+def test_yt_dlp_caches_with_the_runtime_caches(monkeypatch, tmp_path):
+    from playalong import download
+    monkeypatch.delenv("PLAYALONG_CACHE", raising=False)
+    assert download._cache() == {}
+    monkeypatch.setenv("PLAYALONG_CACHE", str(tmp_path))
+    assert download._cache() == {"cachedir": str(tmp_path / "yt-dlp")}
