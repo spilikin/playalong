@@ -56,7 +56,8 @@ export async function refreshLibrary() {
   maker.songs = (await invoke<LibrarySong[] | null>('list_library', { library: maker.library }).catch(() => null)) ?? [];
 }
 
-/** What's installed, the library, and (in the background) whether the tools have an update. */
+/** What's installed and the library; resolves once those are known. Whether the tools have an update is
+ * found in the background. */
 export async function startMaker() {
   await listenOnce().catch(() => {});
   try {
@@ -68,8 +69,11 @@ export async function startMaker() {
     maker.error = String(e);
   }
   maker.ready = true;
-  // Offline is fine: the app plays songs without it, and setting up says what went wrong.
-  maker.check = await invoke<Check>('runtime_check').catch(() => null);
+  // In the background, so opening a song never waits on the network; offline is fine, the app plays songs
+  // without it, and setting up says what went wrong.
+  void invoke<Check>('runtime_check')
+    .catch(() => null)
+    .then((check) => (maker.check = check));
 }
 
 export async function installTools() {

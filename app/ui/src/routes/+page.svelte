@@ -173,14 +173,16 @@
   }
 
   onMount(() => {
-    void startMaker();
+    const started = startMaker();
     void checkAppUpdate();
     let stop: (() => void) | undefined;
     let destroyed = false;
-    // `Playalong <folder> [--at SECONDS]` opens that song, waiting at that point in it.
+    // `Playalong <folder> [--at SECONDS]` opens that song, waiting at that point in it. Only once the app
+    // knows whether the audio tools are there: an old song needs them to be brought up to date.
     invoke<{ path: string | null; at: number | null } | null>('launch_args')
       .then(async (launch) => {
         if (!launch?.path) return;
+        await started;
         resumeAt = launch.at;
         await openPath(launch.path);
       })

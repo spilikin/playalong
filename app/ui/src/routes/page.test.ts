@@ -130,6 +130,21 @@ describe('player', () => {
     expect(order).toEqual(['song_refresh', 'playback_open']);
   });
 
+  it('brings an old song given at launch up to date once it knows the audio tools are there', async () => {
+    openResult = { ...opened, song: { ...opened.song, version: 1 } };
+    let answer: (v: unknown) => void = () => {};
+    ipc.runtime_status = () => new Promise((resolve) => (answer = resolve));
+    ipc.default_library = () => '/m/Playalong';
+    ipc.list_library = () => [];
+    ipc.launch_args = () => ({ path: '/m/Playalong/kad', at: null });
+    ipc.song_refresh = () => opened;
+    render(Page);
+    await settle();
+    answer({ installed: { version: '2026.11.08', series: 1, commit: 'abc', model: 'sw' }, busy: false });
+    await screen.findByRole('heading', { name: 'Kad izdzisīs' });
+    expect(calls.some((c) => c.cmd === 'song_refresh')).toBe(true);
+  });
+
   it('says an old song needs the audio tools to be brought up to date', async () => {
     openResult = { ...opened, song: { ...opened.song, version: 1 } };
     render(Page);
