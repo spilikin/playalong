@@ -9,7 +9,7 @@
   import Library from '$lib/Library.svelte';
   import MakingCard from '$lib/MakingCard.svelte';
   import MixesCard from '$lib/MixesCard.svelte';
-  import MixPanel from '$lib/MixPanel.svelte';
+  import MixesPage from '$lib/MixesPage.svelte';
   import MixIcon from '$lib/MixIcon.svelte';
   import ThemeToggle from '$lib/ThemeToggle.svelte';
   import AppUpdate from '$lib/AppUpdate.svelte';
@@ -48,7 +48,7 @@
   let dropping = $state(false);
   let recents = $state<string[]>(loadRecents());
   let scroller = $state<HTMLElement>();
-  let mixing = $state(false);
+  let managing = $state(false);
   // Song time to resume at once a newly chosen mix has loaded, so switching mixes keeps your place.
   let resumeAt: number | null = null;
 
@@ -96,7 +96,7 @@
       const result = await invoke<OpenedSong>('open_song', { path });
       audio?.pause();
       opened = result;
-      mixing = false;
+      managing = false;
       mix = defaultMix(result.song.mixes);
       mixSeconds = 0;
       resumeAt = null;
@@ -110,7 +110,7 @@
   function toLibrary() {
     audio?.pause();
     opened = null;
-    mixing = false;
+    managing = false;
     error = '';
     void refreshLibrary();
   }
@@ -302,6 +302,9 @@
         <AppUpdate />
         <ThemeToggle />
         {#if maker.installed}
+          <button class="open manage" aria-pressed={managing} onclick={() => (managing = !managing)}
+            >{s.manageMixes}</button
+          >
           <button class="open" onclick={toLibrary}>{s.backToLibrary}</button>
         {:else}
           <button class="open" onclick={pick}>{s.open}</button>
@@ -322,19 +325,22 @@
           {@render mixButton(m, mixBlurb(m, s))}
         {/each}
       {/if}
-      {#if maker.installed}
-        <button class="new-mixes" aria-expanded={mixing} onclick={() => (mixing = !mixing)}>{s.newMixesButton}</button>
-      {/if}
       <MixesCard openFolder={opened.folder} onOpen={openPath} />
       <MakingCard onOpen={openPath} />
       <div class="foot"><Wordmark /></div>
     </nav>
 
-    {#if mixing}
-      <MixPanel folder={opened.folder} onClose={() => (mixing = false)} />
-    {/if}
     <div class="main">
       {#if error}<p class="error banner" role="alert">{error}</p>{/if}
+      {#if managing}
+        <MixesPage
+          song={opened.song}
+          folder={opened.folder}
+          playing={mix}
+          onPlay={chooseMix}
+          onClose={() => (managing = false)}
+        />
+      {:else}
       {#if !song.mixes.length}
         <p class="banner">{s.noMixes[0]}<code>playalong mix</code>{s.noMixes[1]}</p>
       {:else if mix && mix.source_offset === null}
@@ -367,6 +373,7 @@
       <main class="sheet-wrap" bind:this={scroller}>
         <ChordSheet {bars} shapes={song.chord_shapes} {time} onSeek={seekSong} viewport={scroller} />
       </main>
+      {/if}
     </div>
   </div>
 
@@ -569,13 +576,9 @@
   .tray h2.more {
     margin-top: 14px;
   }
-  .new-mixes {
-    margin-top: 10px;
-    text-align: left;
-    padding: 7px 8px;
-    border-radius: 8px;
-    border: 1px dashed var(--accent);
+  .manage[aria-pressed='true'] {
     background: var(--accent-soft);
+    border-color: var(--accent);
     color: var(--accent);
     font-weight: 600;
   }

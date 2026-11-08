@@ -57,6 +57,8 @@ export interface Song {
   mixes: Mix[];
   /** Per transposed mix ("-2", "+3"): the key and every chord name moved, with shapes in chord_shapes. */
   transpositions?: Record<string, { key: string; chords: Record<string, string> }>;
+  /** GarageBand stems, one folder per key they were made in. */
+  garagebands?: { folder: string; bpm: number | null; transpose: number }[];
   audio: { file: string; sample_rate: number; duration: number } | null;
   /** Missing in song files written before the CLI fetched covers. */
   cover?: { file: string; source: string | null; album: string | null } | null;

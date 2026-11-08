@@ -1,39 +1,76 @@
-import { beforeEach, describe, expect, it } from 'vitest';
-import { STRINGS } from './i18n.svelte';
-import { DEFAULT_CHOICE, loadChoice, makeLabel, mixCount, mixSummary, saveChoice, type MixChoice } from './mixChoice';
+import { beforeEach, describe, expect, it } from "vitest";
+import { STRINGS } from "./i18n.svelte";
+import {
+  DEFAULT_PICKS,
+  loadPicks,
+  savePicks,
+  toChoice,
+  toMake,
+  type Picks,
+} from "./mixChoice";
 
 const s = STRINGS.en;
+const nothingMade = { mixes: new Map(), garageband: false };
 
-describe('mix choices', () => {
+describe("what the Mixes page remembers", () => {
   beforeEach(() => localStorage.clear());
 
-  it('starts from the main practice mixes, then remembers the last choice for every song', () => {
-    expect(loadChoice()).toEqual(DEFAULT_CHOICE);
-    const mine: MixChoice = { ...DEFAULT_CHOICE, presets: ['backing'], transpose: -2, count_in: 2 };
-    saveChoice(mine);
-    expect(loadChoice()).toEqual(mine);
+  it("starts from the main practice mixes, then remembers the last picks for every song", () => {
+    expect(loadPicks()).toEqual(DEFAULT_PICKS);
+    const mine: Picks = {
+      ...DEFAULT_PICKS,
+      presets: ["backing"],
+      count_in: 2,
+      garageband: true,
+    };
+    savePicks(mine);
+    expect(loadPicks()).toEqual(mine);
   });
 
-  it('falls back to the defaults when what is stored is unreadable or from an older app', () => {
-    localStorage.setItem('playalong.mixChoice', '{oops');
-    expect(loadChoice()).toEqual(DEFAULT_CHOICE);
-    localStorage.setItem('playalong.mixChoice', JSON.stringify({ presets: ['guide'] }));
-    expect(loadChoice()).toEqual({ ...DEFAULT_CHOICE, presets: ['guide'] });
+  it("falls back to the defaults when what is stored is unreadable or from an older app", () => {
+    localStorage.setItem("playalong.mixPicks", "{oops");
+    expect(loadPicks()).toEqual(DEFAULT_PICKS);
+    localStorage.setItem(
+      "playalong.mixPicks",
+      JSON.stringify({ presets: ["guide"] }),
+    );
+    expect(loadPicks()).toEqual({ ...DEFAULT_PICKS, presets: ["guide"] });
+  });
+});
+
+describe("what gets made", () => {
+  const picks: Picks = {
+    ...DEFAULT_PICKS,
+    presets: ["guide", "vocals-only"],
+    myMix: true,
+    garageband: true,
+  };
+
+  it("leaves out what the version already has", () => {
+    const made = { mixes: new Map([["guide", {} as never]]), garageband: true };
+    expect(toMake(picks, made, s)).toEqual(["Vocals only", "My mix"]);
+    const choice = toChoice(picks, made, -2, 0.9);
+    expect(choice).toMatchObject({
+      presets: ["vocals-only"],
+      transpose: -2,
+      tempo: 0.9,
+      garageband: false,
+    });
+    expect(choice.custom).toEqual(DEFAULT_PICKS.levels);
   });
 
-  it('says what will be made', () => {
-    const c: MixChoice = { ...DEFAULT_CHOICE, presets: ['guide', 'no-guitar'], custom: { guitar: -12 }, transpose: -2 };
-    expect(mixCount(c)).toBe(3);
-    expect(mixSummary(c, s)).toBe('Guide −2, No guitar −2, My mix −2');
-    expect(mixSummary({ ...c, transpose: 0, tempo: 0.8, custom: null }, s)).toBe('Guide 80%, No guitar 80%');
-  });
-
-  it('makes GarageBand stems on their own too, in the chosen key', () => {
-    const only: MixChoice = { ...DEFAULT_CHOICE, presets: [], garageband: true, transpose: -2 };
-    expect(mixCount(only)).toBe(1);
-    expect(mixSummary(only, s)).toBe('GarageBand stems −2');
-    expect(makeLabel(only, s)).toBe('Make GarageBand stems');
-    expect(makeLabel({ ...only, presets: ['guide'] }, s)).toBe('Make 1 mix + GarageBand');
-    expect(makeLabel({ ...only, presets: ['guide', 'backing'], garageband: false }, s)).toBe('Make 2 mixes');
+  it("makes GarageBand stems alone too", () => {
+    const only: Picks = {
+      ...DEFAULT_PICKS,
+      presets: [],
+      myMix: false,
+      garageband: true,
+    };
+    expect(toMake(only, nothingMade, s)).toEqual(["GarageBand stems"]);
+    expect(toChoice(only, nothingMade, 0, 1)).toMatchObject({
+      presets: [],
+      custom: null,
+      garageband: true,
+    });
   });
 });

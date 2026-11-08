@@ -74,7 +74,7 @@ def _files(track_dir: Path) -> dict:
 
     stems_dir, mixes_dir = track_dir / "stems", track_dir / "mixes"
     stems = {p.stem: rel(p) for p in sorted(stems_dir.glob("*.wav"))} if stems_dir.is_dir() else {}
-    mixes, garageband = [], None
+    mixes, garagebands = [], []
     try:
         index = json.loads((mixes_dir / MIX_INDEX).read_text())
     except (FileNotFoundError, json.JSONDecodeError):
@@ -83,8 +83,8 @@ def _files(track_dir: Path) -> dict:
         for p in sorted(mixes_dir.iterdir()):
             if p.is_dir():
                 if m := GARAGEBAND.search(p.name):
-                    garageband = {"folder": rel(p), "bpm": int(m["bpm"]) if m["bpm"] else None,
-                                  "transpose": int(m["semitones"] or 0)}
+                    garagebands.append({"folder": rel(p), "bpm": int(m["bpm"]) if m["bpm"] else None,
+                                        "transpose": int(m["semitones"] or 0)})
             elif p.suffix in (".mp3", ".wav", ".flac") and (m := MIX_NAME.search(p.stem)):
                 tempo = int(m["percent"]) / 100 if m["percent"] else 1.0
                 # Timing is only known for mixes rendered since mixes.json existed; older ones get nulls.
@@ -93,7 +93,9 @@ def _files(track_dir: Path) -> dict:
                               "transpose": int(m["semitones"] or 0),
                               "source_offset": timing.get("source_offset"), "count_in": timing.get("count_in")})
     sheet = track_dir / "chords.html"
-    return {"stems": stems, "mixes": mixes, "garageband": garageband,
+    # `garageband` (one folder) is what older players read; `garagebands` has the stems for every key.
+    return {"stems": stems, "mixes": mixes, "garageband": garagebands[-1] if garagebands else None,
+            "garagebands": garagebands,
             "chord_sheet": rel(sheet) if sheet.exists() else None}
 
 

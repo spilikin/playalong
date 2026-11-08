@@ -1,81 +1,114 @@
-// What the New mixes panel offers, and the choice it remembers: the last one made, for every song, since
-// people tend to practise the same way (no guitar, a tone lower) from song to song.
+// What the Mixes page offers and remembers: the rows ticked last time, your own instrument levels, the
+// count-in and the GarageBand stems, for every song. Key and tempo come from the mix that's playing.
 
-import type { Strings } from './i18n.svelte';
+import type { Strings } from "./i18n.svelte";
+import type { Mix } from "./song";
 
 export const PRESETS = [
-  'original',
-  'guide',
-  'no-guitar',
-  'vocals-only',
-  'backing',
-  'rhythm-section',
-  'drums-only',
-  'guitar-only',
+  "original",
+  "guide",
+  "no-guitar",
+  "vocals-only",
+  "backing",
+  "rhythm-section",
+  "drums-only",
+  "guitar-only",
 ] as const;
-export const STEMS = ['vocals', 'guitar', 'bass', 'drums', 'piano', 'other'] as const;
+export const STEMS = [
+  "vocals",
+  "guitar",
+  "bass",
+  "drums",
+  "piano",
+  "other",
+] as const;
 export type Stem = (typeof STEMS)[number];
+export type Levels = Record<Stem, number | null>;
+/** The file name of your own mix, as the CLI writes it. */
+export const MY_MIX = "my-mix";
+
+export interface Picks {
+  presets: string[];
+  myMix: boolean;
+  /** dB per instrument for My mix, null for off; kept while My mix isn't ticked. */
+  levels: Levels;
+  count_in: 0 | 1 | 2;
+  garageband: boolean;
+}
 
 /** Matches `MixChoice` in app/src-tauri/src/maker.rs. */
 export interface MixChoice {
   presets: string[];
-  /** The person's own mix: dB per instrument, null for off; left out = as recorded. */
-  custom: Partial<Record<Stem, number | null>> | null;
+  custom: Levels | null;
   transpose: number;
   tempo: number;
   count_in: 0 | 1 | 2;
   garageband: boolean;
 }
 
-export const DEFAULT_CHOICE: MixChoice = {
-  presets: ['guide', 'no-guitar', 'vocals-only'],
-  custom: null,
-  transpose: 0,
-  tempo: 1,
+export interface Made {
+  mixes: Map<string, Mix>;
+  garageband: boolean;
+}
+
+export const DEFAULT_PICKS: Picks = {
+  presets: ["guide", "no-guitar", "vocals-only"],
+  myMix: false,
+  levels: { vocals: 0, guitar: 0, bass: 0, drums: 0, piano: 0, other: 0 },
   count_in: 1,
   garageband: false,
 };
 
-const KEY = 'playalong.mixChoice';
+const KEY = "playalong.mixPicks";
 
-export function loadChoice(): MixChoice {
+export function loadPicks(): Picks {
   try {
-    const stored = JSON.parse(localStorage.getItem(KEY) ?? 'null');
-    return stored && typeof stored === 'object' ? { ...DEFAULT_CHOICE, ...stored } : { ...DEFAULT_CHOICE };
+    const stored = JSON.parse(localStorage.getItem(KEY) ?? "null");
+    if (!stored || typeof stored !== "object")
+      return structuredClone(DEFAULT_PICKS);
+    return {
+      ...structuredClone(DEFAULT_PICKS),
+      ...stored,
+      levels: { ...DEFAULT_PICKS.levels, ...stored.levels },
+    };
   } catch {
-    return { ...DEFAULT_CHOICE };
+    return structuredClone(DEFAULT_PICKS);
   }
 }
 
-export function saveChoice(choice: MixChoice) {
+export function savePicks(picks: Picks) {
   try {
-    localStorage.setItem(KEY, JSON.stringify(choice));
+    localStorage.setItem(KEY, JSON.stringify(picks));
   } catch {
-    // Storage can be unavailable; the panel then starts from the defaults next time.
+    // Storage can be unavailable; the page then starts from the defaults next time.
   }
 }
 
-const mixesOnly = (choice: MixChoice) => choice.presets.length + (choice.custom ? 1 : 0);
-
-/** Things to make: each mix, and the GarageBand stems as one more. */
-export const mixCount = (choice: MixChoice) => mixesOnly(choice) + (choice.garageband ? 1 : 0);
-
-export function makeLabel(choice: MixChoice, s: Strings): string {
-  const mixes = mixesOnly(choice);
-  if (!mixes) return choice.garageband ? s.makeGarageBand : s.makeMixes(0);
-  return choice.garageband ? s.makeMixesAndGarageBand(mixes) : s.makeMixes(mixes);
+/** Names of what Make would make in this version: the ticked rows it doesn't have yet. */
+export function toMake(picks: Picks, made: Made, s: Strings): string[] {
+  return [
+    ...picks.presets
+      .filter((p) => !made.mixes.has(p))
+      .map((p) => s.mixNames[p]?.[0] ?? p),
+    ...(picks.myMix && !made.mixes.has(MY_MIX) ? [s.myMix] : []),
+    ...(picks.garageband && !made.garageband ? [s.garageBandStems] : []),
+  ];
 }
 
-export function mixSummary(choice: MixChoice, s: Strings): string {
-  const extra = [
-    choice.transpose ? (choice.transpose > 0 ? `+${choice.transpose}` : `−${-choice.transpose}`) : '',
-    choice.tempo !== 1 ? `${Math.round(choice.tempo * 100)}%` : '',
-  ]
-    .filter(Boolean)
-    .join(' ');
-  const names = [...choice.presets.map((p) => s.mixNames[p]?.[0] ?? p), ...(choice.custom ? [s.myMix] : [])];
-  const mixes = names.map((n) => (extra ? `${n} ${extra}` : n));
-  // The stems keep the song's tempo, so only a key change shows next to them.
-  const key = choice.transpose ? ` ${choice.transpose > 0 ? '+' : '−'}${Math.abs(choice.transpose)}` : '';
-  return [...mixes, ...(choice.garageband ? [`${s.garageBandStems}${key}`] : [])].join(', ');
+export function toChoice(
+  picks: Picks,
+  made: Made,
+  transpose: number,
+  tempo: number,
+): MixChoice {
+  return {
+    presets: PRESETS.filter(
+      (p) => picks.presets.includes(p) && !made.mixes.has(p),
+    ),
+    custom: picks.myMix && !made.mixes.has(MY_MIX) ? { ...picks.levels } : null,
+    transpose,
+    tempo,
+    count_in: picks.count_in,
+    garageband: picks.garageband && !made.garageband,
+  };
 }

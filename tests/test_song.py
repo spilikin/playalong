@@ -152,3 +152,16 @@ def test_transposed_mixes_come_with_their_key_chord_names_and_shapes(tmp_path):
         p.unlink()
     song = json.loads(write_song(d).read_text())
     assert song["transpositions"] == {} and set(song["chord_shapes"]) == {"Bbm", "Gb"}
+
+
+def test_every_garageband_folder_is_listed_one_per_key(tmp_path):
+    from playalong.song import _files
+
+    for name in ("s - GarageBand 120 BPM", "s - GarageBand 120 BPM -2"):
+        (tmp_path / "mixes" / name).mkdir(parents=True)
+    files = _files(tmp_path)
+    assert files["garagebands"] == [
+        {"folder": "mixes/s - GarageBand 120 BPM", "bpm": 120, "transpose": 0},
+        {"folder": "mixes/s - GarageBand 120 BPM -2", "bpm": 120, "transpose": -2},
+    ]
+    assert files["garageband"] == files["garagebands"][-1]

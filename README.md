@@ -124,7 +124,7 @@ Every step writes `library/<song>/<song>.playalong`, a JSON file a player opens 
 | `chords` | start, end, name, root and `major`/`minor` (`N` = no chord) |
 | `chord_shapes` | per chord: `frets` and `fingers` low E to high e (`-1` muted, `0` open), `barre` fret and string positions |
 | `cover` | `cover.jpg`, where it came from (`itunes` or the `youtube` thumbnail) and the album |
-| `stems`, `mixes`, `garageband`, `chord_sheet` | where the audio and the chord sheet are |
+| `stems`, `mixes`, `garageband`, `garagebands`, `chord_sheet` | where the audio and the chord sheet are (`garagebands`: the stems for every key) |
 | `transpositions` | per transposed mix (`"-2"`): the key and every chord name moved; their shapes are in `chord_shapes` |
 
 Steps that don't detect chords keep the ones already in the file.
@@ -228,9 +228,10 @@ separation model, about 490 MB, 1.5 GB unpacked, into `~/Library/Application Sup
 downloads in progress and caches go to `~/Library/Caches/dev.playalong`).
 After that it opens on the **Library**, the songs in `~/Music/Playalong`: paste a YouTube link (or drop
 or choose an audio file) and **Make song**: it downloads the song, splits it into instruments, finds the
-chords and makes the original mix, then opens it. Other mixes are made on request in the player with
-**+ New mixes…**: presets, your own instrument levels, another key or tempo, count-in and GarageBand
-stems. The panel starts from whatever you chose last time. Songs made elsewhere open with
+chords and makes the original mix, then opens it. Other mixes are made on request in the player: **Manage mixes** shows
+the song's mixes one version (key and tempo) at a time, starting at the mix you're playing. Each mix type
+is a row, marked made or ticked to make, including your own instrument levels and the GarageBand stems.
+The ticks, levels and count-in are remembered for the next song. Songs made elsewhere open with
 **Open folder…** or by dropping a folder on the window.
 
 ### Updates
