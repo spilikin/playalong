@@ -35,9 +35,9 @@ bundle="$app/target/release/bundle/macos"
 codesign --verify --deep --strict "$bundle/Playalong.app"
 out="$app/target/release/publish"
 rm -rf "$out" && mkdir -p "$out"
-# The updater takes the .tar.gz; people downloading the app by hand get a zip, which Finder opens.
+# The updater takes the .tar.gz; people downloading the app by hand get the disk image.
 cp "$bundle/Playalong.app.tar.gz" "$out/Playalong-$version-arm64.app.tar.gz"
-ditto -c -k --keepParent "$bundle/Playalong.app" "$out/Playalong-$version-arm64.zip"
+cp "$app/target/release/bundle/dmg/Playalong_${version}_aarch64.dmg" "$out/Playalong-$version-arm64.dmg"
 
 jq -n \
   --arg version "$version" \
@@ -48,7 +48,7 @@ jq -n \
   '{version: $version, notes: $notes, pub_date: $date,
     platforms: {"darwin-aarch64": {signature: $signature, url: $url}}}' >"$out/latest.json"
 
-gh release create "$tag" "$out/Playalong-$version-arm64.zip" "$out/Playalong-$version-arm64.app.tar.gz" \
+gh release create "$tag" "$out/Playalong-$version-arm64.dmg" "$out/Playalong-$version-arm64.app.tar.gz" \
   --repo "$repo" --target "$commit" --latest --title "Playalong $version" --notes "$notes"
 if gh release view "$updates" --repo "$repo" >/dev/null 2>&1; then
   gh release upload "$updates" "$out/latest.json" --repo "$repo" --clobber

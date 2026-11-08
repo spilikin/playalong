@@ -42,7 +42,8 @@
   "bundle": {
     "active": true,
     "targets": [
-      "app"
+      "app",
+      "dmg"
     ],
     "resources": {
       "../../src/playalong/*.py": "python/playalong/"

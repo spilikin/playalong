@@ -218,8 +218,8 @@ then the current chord, the next four, and the song in bars with the playing bea
 
 ### Install
 
-Download `Playalong-<version>-arm64.zip` from the [latest release](https://github.com/spilikin/playalong/releases/latest)
-(Apple Silicon), unzip it and move `Playalong.app` to Applications. The app isn't notarized by Apple, so
+Download `Playalong-<version>-arm64.dmg` from the [latest release](https://github.com/spilikin/playalong/releases/latest)
+(Apple Silicon), open it and drag Playalong to Applications. The app isn't notarized by Apple, so
 the first start is refused: open it once, then **System Settings › Privacy & Security › Open Anyway**
 (or run `xattr -dr com.apple.quarantine /Applications/Playalong.app`).
 
