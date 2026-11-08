@@ -9,9 +9,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime};
 
-use std::collections::BTreeMap;
-
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::runtime::{self, Installed, Plan};
@@ -82,75 +80,69 @@ impl Drop for Busy<'_> {
     }
 }
 
-/// A new song: download, cover, instruments, chords and only the original mix; the rest is made on request.
+/// A new song: download, cover, instruments, chords and its default mixes, which play live.
 pub fn cli_args(source: &str, library: &str) -> Vec<String> {
-    ["-l", library, "run", source, "-p", "original", "--no-garageband"].map(String::from).to_vec()
+    ["-l", library, "run", source].map(String::from).to_vec()
 }
 
-const PRESETS: [&str; 8] =
-    ["original", "guide", "no-guitar", "vocals-only", "backing", "rhythm-section", "drums-only", "guitar-only"];
-const STEMS: [&str; 6] = ["vocals", "guitar", "bass", "drums", "piano", "other"];
-const CUSTOM_NAME: &str = "my-mix";
-
-/// The mixes to make, as chosen in the player's panel.
-#[derive(Deserialize)]
-pub struct MixChoice {
-    presets: Vec<String>,
-    /// The person's own mix: dB per instrument, `None` for off; instruments left out stay as recorded.
-    custom: Option<BTreeMap<String, Option<f64>>>,
-    transpose: i32,
-    tempo: f64,
-    count_in: u8,
-    garageband: bool,
+/// The jobs a song can run in the background, as `playalong` arguments.
+pub enum SongJob {
+    Refresh,
+    Retime { start: Option<f64>, bpm: Option<f64> },
+    Export { mix: String },
+    GarageBand { transpose: i32 },
 }
 
-/// `playalong mix` for a song folder. Names come from the web view, so only known presets and instruments
-/// pass: anything else could be taken for an option.
-pub fn mix_args(folder: &str, choice: &MixChoice) -> Result<Vec<String>, String> {
-    if choice.presets.is_empty() && choice.custom.is_none() {
-        if !choice.garageband {
-            return Err("Choose at least one mix".into());
-        }
-        // Only the GarageBand project: tempo and count-in don't apply to it.
-        let mut args = vec!["garageband".to_string(), folder.to_string()];
-        if choice.transpose != 0 {
-            args.extend(["-k".into(), choice.transpose.to_string()]);
-        }
-        args.push("--band".into());
-        return Ok(args);
-    }
-    let mut args = vec!["mix".to_string(), folder.to_string()];
-    for preset in &choice.presets {
-        if !PRESETS.contains(&preset.as_str()) {
-            return Err(format!("Unknown mix: {preset}"));
-        }
-        args.extend(["-p".into(), preset.clone()]);
-    }
-    if let Some(custom) = &choice.custom {
-        for (stem, gain) in custom {
-            if !STEMS.contains(&stem.as_str()) {
-                return Err(format!("Unknown instrument: {stem}"));
+impl SongJob {
+    /// Values come from the web view; a mix id is checked so it can't be taken for an option.
+    pub fn args(&self, folder: &str) -> Result<Vec<String>, String> {
+        let mut args = vec![String::new(), folder.to_string()];
+        match self {
+            SongJob::Refresh => args[0] = "refresh".into(),
+            SongJob::Retime { start, bpm } => {
+                args[0] = "retime".into();
+                if let Some(s) = start {
+                    args.extend(["--start".into(), format!("{s:.2}")]);
+                }
+                if let Some(b) = bpm {
+                    args.extend(["--bpm".into(), format!("{b:.1}")]);
+                }
             }
-            let level = gain.map_or("off".to_string(), |db| db.to_string());
-            args.extend(["-g".into(), format!("{stem}={level}")]);
+            SongJob::Export { mix } => {
+                let plain = mix.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_');
+                if mix.is_empty() || mix.starts_with('-') || !plain {
+                    return Err(format!("Not a mix id: {mix}"));
+                }
+                args[0] = "export".into();
+                args.push(mix.clone());
+            }
+            SongJob::GarageBand { transpose } => {
+                if !(-12..=12).contains(transpose) {
+                    return Err("The key moves at most 12 semitones".into());
+                }
+                args[0] = "garageband".into();
+                if *transpose != 0 {
+                    args.extend(["-k".into(), transpose.to_string()]);
+                }
+                args.push("--band".into());
+            }
         }
-        args.extend(["--name".into(), CUSTOM_NAME.into()]);
+        Ok(args)
     }
-    if choice.transpose != 0 {
-        args.extend(["-k".into(), choice.transpose.to_string()]);
+}
+
+/// The file `export` wrote, from its last line ("  <path>.mp3").
+pub fn exported_file(line: &str) -> Option<PathBuf> {
+    let path = line.trim();
+    path.ends_with(".mp3").then(|| PathBuf::from(path))
+}
+
+/// Whether `folder` is a song inside `library` (and not the library itself): the only thing deleted.
+pub fn inside_library(library: &Path, folder: &Path) -> bool {
+    match (library.canonicalize(), folder.canonicalize()) {
+        (Ok(lib), Ok(song)) => song != lib && song.starts_with(&lib),
+        _ => false,
     }
-    if choice.tempo != 1.0 {
-        args.extend(["-t".into(), choice.tempo.to_string()]);
-    }
-    match choice.count_in {
-        0 => args.push("--no-count-in".into()),
-        1 => {}
-        bars => args.extend(["-c".into(), bars.to_string()]),
-    }
-    if choice.garageband {
-        args.extend(["--garageband".into(), "--band".into()]);
-    }
-    Ok(args)
 }
 
 pub fn is_url(source: &str) -> bool {
@@ -319,34 +311,85 @@ pub async fn make_song(app: AppHandle, source: String, library: String) -> Resul
     crate::open_folder(&app, &folder.to_string_lossy())
 }
 
-/// More mixes for a song, made in the background while it plays; returns the song with them.
-#[tauri::command]
-pub async fn make_mixes(app: AppHandle, folder: String, choice: MixChoice) -> Result<OpenedSong, String> {
-    let args = mix_args(&folder, &choice)?;
+#[derive(Clone, Serialize)]
+struct JobLine {
+    folder: String,
+    line: String,
+}
+
+/// A job on a song, in the background; its output lines go out as `song-job-line`, and the last line is
+/// returned (an export prints the file it wrote there).
+async fn song_job(app: AppHandle, folder: String, job: SongJob, what: &'static str) -> Result<String, String> {
+    let args = job.args(&folder)?;
     let root = root(&app)?;
     let code = code(&app)?;
     let cache = cache(&app)?;
     let handle = app.clone();
-    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<String, String> {
         let maker = handle.state::<Maker>();
-        let _busy = maker.begin("making mixes")?;
+        let _busy = maker.begin(what)?;
         maker.stopped.store(false, Ordering::SeqCst);
         let runtime_dir = root.join("runtime");
         if runtime::installed(&runtime_dir).is_none() {
-            return Err("The runtime isn't set up yet".into());
+            return Err("The audio tools aren't set up yet".into());
         }
         let env = [("PLAYALONG_CODE", code.as_path()), ("PLAYALONG_CACHE", cache.as_path())];
+        let mut last = String::new();
         let result = maker.run_cli(&runtime_dir, &args, &env, |line| {
-            let _ = handle.emit("make-mixes-line", Line { line: line.to_string() });
+            last = line.to_string();
+            let _ = handle.emit("song-job-line", JobLine { folder: folder.clone(), line: line.to_string() });
         });
         if maker.is_stopped() {
             return Err("Stopped".into());
         }
-        result
+        result.map(|_| last)
     })
     .await
-    .map_err(|e| e.to_string())??;
+    .map_err(|e| e.to_string())?
+}
+
+/// A song from before live mixes: rendered mixes go, default mixes and a version 2 song file come.
+#[tauri::command]
+pub async fn song_refresh(app: AppHandle, folder: String) -> Result<OpenedSong, String> {
+    song_job(app.clone(), folder.clone(), SongJob::Refresh, "bringing the song up to date").await?;
     crate::open_folder(&app, &folder)
+}
+
+/// A new start and/or tempo; chords and bars are found again.
+#[tauri::command]
+pub async fn song_retime(
+    app: AppHandle,
+    folder: String,
+    start: Option<f64>,
+    bpm: Option<f64>,
+) -> Result<OpenedSong, String> {
+    song_job(app.clone(), folder.clone(), SongJob::Retime { start, bpm }, "finding chords and bars").await?;
+    crate::open_folder(&app, &folder)
+}
+
+/// One mix as an MP3, shown in Finder once it's written.
+#[tauri::command]
+pub async fn song_export(app: AppHandle, folder: String, mix: String) -> Result<String, String> {
+    let last = song_job(app, folder, SongJob::Export { mix }, "exporting a mix").await?;
+    let file = exported_file(&last).ok_or("The export didn't say where it wrote the file")?;
+    let _ = std::process::Command::new("/usr/bin/open").arg("-R").arg(&file).status();
+    Ok(file.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+pub async fn song_garageband(app: AppHandle, folder: String, transpose: i32) -> Result<OpenedSong, String> {
+    let job = SongJob::GarageBand { transpose };
+    song_job(app.clone(), folder.clone(), job, "building the GarageBand project").await?;
+    crate::open_folder(&app, &folder)
+}
+
+/// A song to the Trash; only a folder inside the library.
+#[tauri::command]
+pub fn delete_song(folder: String, library: String) -> Result<(), String> {
+    if !inside_library(Path::new(&library), Path::new(&folder)) {
+        return Err(format!("{folder} isn't a song in the library"));
+    }
+    trash::delete(&folder).map_err(|e| format!("can't move {folder} to the Trash: {e}"))
 }
 
 /// A song's GarageBand project, from the path the song file gives it; nothing outside the song folder.
@@ -395,35 +438,38 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_new_song_gets_its_instruments_chords_and_only_the_original() {
-        assert_eq!(cli_args("https://y/x", "/lib"), ["-l", "/lib", "run", "https://y/x", "-p", "original", "--no-garageband"]);
-    }
-
-    fn choice(json: &str) -> MixChoice {
-        serde_json::from_str(json).unwrap()
+    fn a_new_song_is_run_without_rendering_mixes() {
+        assert_eq!(cli_args("https://y/x", "/lib"), ["-l", "/lib", "run", "https://y/x"]);
     }
 
     #[test]
-    fn mixes_are_made_as_chosen() {
-        let c = choice(r#"{"presets":["guide","no-guitar"],"custom":{"guitar":-12,"piano":null},
-            "transpose":-2,"tempo":0.9,"count_in":0,"garageband":true}"#);
-        assert_eq!(
-            mix_args("/lib/song", &c).unwrap(),
-            ["mix", "/lib/song", "-p", "guide", "-p", "no-guitar", "-g", "guitar=-12", "-g", "piano=off", "--name",
-             "my-mix", "-k", "-2", "-t", "0.9", "--no-count-in", "--garageband", "--band"]
-        );
-        let plain = choice(r#"{"presets":["original"],"custom":null,"transpose":0,"tempo":1,"count_in":2,"garageband":false}"#);
-        assert_eq!(mix_args("/s", &plain).unwrap(), ["mix", "/s", "-p", "original", "-c", "2"]);
+    fn song_jobs_become_cli_arguments() {
+        assert_eq!(SongJob::Refresh.args("/s").unwrap(), ["refresh", "/s"]);
+        let retime = SongJob::Retime { start: Some(12.345), bpm: Some(92.04) };
+        assert_eq!(retime.args("/s").unwrap(), ["retime", "/s", "--start", "12.35", "--bpm", "92.0"]);
+        assert_eq!(SongJob::Retime { start: None, bpm: None }.args("/s").unwrap(), ["retime", "/s"]);
+        assert_eq!(SongJob::Export { mix: "band-2".into() }.args("/s").unwrap(), ["export", "/s", "band-2"]);
+        assert!(SongJob::Export { mix: "--all".into() }.args("/s").is_err());
+        let gb = SongJob::GarageBand { transpose: -2 };
+        assert_eq!(gb.args("/s").unwrap(), ["garageband", "/s", "-k", "-2", "--band"]);
+        assert_eq!(SongJob::GarageBand { transpose: 0 }.args("/s").unwrap(), ["garageband", "/s", "--band"]);
+        assert!(SongJob::GarageBand { transpose: 13 }.args("/s").is_err());
+        let line = "  /lib/s/exports/s - Guide.mp3";
+        assert_eq!(exported_file(line), Some(PathBuf::from("/lib/s/exports/s - Guide.mp3")));
+        assert_eq!(exported_file("Song file: /x.playalong"), None);
     }
 
     #[test]
-    fn only_known_mixes_and_instruments_reach_the_cli() {
-        let none = choice(r#"{"presets":[],"custom":null,"transpose":0,"tempo":1,"count_in":1,"garageband":false}"#);
-        assert!(mix_args("/s", &none).is_err());
-        let odd = choice(r#"{"presets":["--all"],"custom":null,"transpose":0,"tempo":1,"count_in":1,"garageband":false}"#);
-        assert!(mix_args("/s", &odd).is_err());
-        let stem = choice(r#"{"presets":[],"custom":{"kazoo":0},"transpose":0,"tempo":1,"count_in":1,"garageband":false}"#);
-        assert!(mix_args("/s", &stem).is_err());
+    fn delete_only_inside_the_library() {
+        let lib = tempfile::tempdir().unwrap();
+        let song = lib.path().join("song");
+        std::fs::create_dir(&song).unwrap();
+        let elsewhere = tempfile::tempdir().unwrap();
+        assert!(inside_library(lib.path(), &song));
+        assert!(!inside_library(lib.path(), lib.path()));
+        assert!(!inside_library(lib.path(), elsewhere.path()));
+        assert!(!inside_library(lib.path(), &lib.path().join("missing")));
+        assert!(!inside_library(lib.path(), &song.join("..").join("..")));
     }
 
     #[test]
@@ -436,26 +482,6 @@ mod tests {
         assert!(project_path(folder, "../elsewhere.band").is_err());
         assert!(project_path(folder, "mixes").is_err());
         assert!(project_path(folder, "mixes/missing.band").is_err());
-    }
-
-    #[test]
-    fn garageband_stems_can_be_made_without_any_mix() {
-        let only = choice(r#"{"presets":[],"custom":null,"transpose":-2,"tempo":0.8,"count_in":2,"garageband":true}"#);
-        assert_eq!(mix_args("/s", &only).unwrap(), ["garageband", "/s", "-k", "-2", "--band"]);
-    }
-
-    #[test]
-    fn the_downloader_is_checked_once_a_day() {
-        assert!(needs_downloader_check(None));
-        assert!(!needs_downloader_check(Some(Duration::from_secs(3600))));
-        assert!(needs_downloader_check(Some(DOWNLOADER_EVERY)));
-    }
-
-    #[test]
-    fn a_login_problem_is_not_a_downloader_problem() {
-        assert!(worth_new_downloader("ERROR: [youtube] x: Requested format is not available"));
-        assert!(!worth_new_downloader("YouTube wants a signed-in account for this video"));
-        assert!(is_url("https://youtu.be/x") && !is_url("/Users/a/song.wav"));
     }
 
     #[test]

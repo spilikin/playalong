@@ -9,7 +9,7 @@ use rubberband_sys::*;
 
 use super::limiter::Limiter;
 use super::mixer::{gains, Mixer, Recipe};
-use super::timeline::{stick, Timeline};
+use super::timeline::{remap, stick, Timeline};
 use super::Stems;
 
 const CEILING: f32 = 0.891_250_9; // -1 dBFS, as the CLI's mixes and exports
@@ -106,6 +106,7 @@ impl Render {
         r
     }
 
+    #[cfg(test)]
     pub fn timeline(&self) -> &Timeline {
         &self.timeline
     }
@@ -126,10 +127,11 @@ impl Render {
 
     /// A changed mix plays on from the same place in the song: its levels ramp, its key and tempo follow.
     pub fn set_recipe(&mut self, recipe: &Recipe) {
-        let song = self.timeline.song_time(self.out_frame as f64 / self.out_rate as f64);
+        let timeline = self.timing.timeline(recipe);
+        let mix = remap(&self.timeline, &timeline, self.out_frame as f64 / self.out_rate as f64);
         self.recipe = recipe.clone();
-        self.timeline = self.timing.timeline(recipe);
-        self.out_frame = (self.timeline.mix_time(song) * self.out_rate as f64).round() as i64;
+        self.timeline = timeline;
+        self.out_frame = (mix * self.out_rate as f64).round() as i64;
         self.mixer.set(gains(recipe, self.stems.has_source()));
         self.stretcher.set(recipe.transpose, recipe.tempo, self.rates());
     }

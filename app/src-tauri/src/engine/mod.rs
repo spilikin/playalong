@@ -3,6 +3,7 @@
 
 pub mod limiter;
 pub mod mixer;
+pub mod player;
 pub mod render;
 pub mod timeline;
 
@@ -20,6 +21,7 @@ pub struct Stems {
 }
 
 impl Stems {
+    #[cfg(test)]
     pub fn from_tracks(rate: u32, tracks: Vec<Track>, source: Option<Track>) -> Stems {
         let mut tracks: Vec<Option<Track>> = tracks.into_iter().map(Some).collect();
         tracks.resize_with(6, || None);

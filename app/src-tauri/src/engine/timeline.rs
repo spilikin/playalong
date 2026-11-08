@@ -78,6 +78,11 @@ impl Timeline {
     }
 }
 
+/// The same moment in the song, in another mix's time: switching mixes keeps the place.
+pub fn remap(old: &Timeline, new: &Timeline, mix_seconds: f64) -> f64 {
+    new.mix_time(old.song_time(mix_seconds))
+}
+
 /// Two sticks struck together, as the CLI's count-in: a noise crack and a short woody ring, the accent
 /// higher and louder.
 pub fn stick(rate: u32, accent: bool) -> Vec<f32> {
@@ -125,6 +130,14 @@ mod tests {
         let two = Timeline::new(0.0, Some(10.0), Some(120.0), 2, 1.0);
         assert_eq!(two.count_in.unwrap().clicks.iter().map(|c| c.count).collect::<Vec<_>>(), [1, 2, 1, 2, 3, 4]);
         assert!((t.song_time(t.mix_time(30.0)) - 30.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn switching_mix_keeps_the_song_position() {
+        let counted = Timeline::new(21.9, Some(22.25), Some(120.0), 1, 1.0);
+        let slow = Timeline::new(21.9, Some(22.25), Some(120.0), 2, 0.8);
+        let m = remap(&counted, &slow, 12.0);
+        assert!((slow.song_time(m) - counted.song_time(12.0)).abs() < 1e-9);
     }
 
     #[test]
