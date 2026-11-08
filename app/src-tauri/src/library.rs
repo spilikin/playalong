@@ -30,12 +30,9 @@ fn row(folder: &Path) -> Option<LibrarySong> {
         return None;
     }
     let text = |key: &str| data.get(key).and_then(Value::as_str).map(String::from);
-    let mixes = data.get("mixes").and_then(Value::as_array).cloned().unwrap_or_default();
-    let mut transposed: Vec<i64> = mixes
-        .iter()
-        .filter_map(|m| m.get("transpose").and_then(Value::as_i64))
-        .filter(|&t| t != 0)
-        .collect();
+    // The song's mixes (defaults without a file); a newer app's file still lists the song, without counts.
+    let mixes = crate::mixes::load(folder).unwrap_or_default();
+    let mut transposed: Vec<i64> = mixes.iter().map(|m| m.transpose as i64).filter(|&t| t != 0).collect();
     transposed.sort_unstable();
     transposed.dedup();
     let meta = std::fs::metadata(&file).ok()?;
@@ -79,10 +76,16 @@ mod tests {
         let folder = song(
             dir.path(),
             "kad",
-            r#"{"format": "playalong-song", "version": 1, "title": "Kad izdzisīs", "artist": "Miks",
-                "key": "Bb minor", "tempo": {"bpm": 79.9}, "cover": {"file": "cover.jpg"},
-                "mixes": [{"transpose": 0}, {"transpose": -2}, {"transpose": -2}, {}]}"#,
+            r#"{"format": "playalong-song", "version": 2, "title": "Kad izdzisīs", "artist": "Miks",
+                "key": "Bb minor", "tempo": {"bpm": 79.9}, "cover": {"file": "cover.jpg"}}"#,
         );
+        let mut mixes = crate::mixes::defaults();
+        mixes[1].transpose = -2;
+        let mut lower = mixes[2].clone();
+        lower.id = "lower".into();
+        lower.transpose = -2;
+        mixes.push(lower);
+        crate::mixes::save(&folder, &mixes).unwrap();
         std::fs::create_dir_all(dir.path().join("not-a-song")).unwrap();
         std::fs::write(dir.path().join("stray.txt"), "x").unwrap();
         let songs = list(dir.path());
@@ -103,7 +106,8 @@ mod tests {
         let bare = song(dir.path(), "bare", r#"{"format": "playalong-song", "version": 1}"#);
         let songs = list(dir.path());
         assert_eq!(songs.len(), 1);
-        assert_eq!((songs[0].title.as_str(), songs[0].mixes), ("bare", 0));
+        // Without a mixes file a song has the default three.
+        assert_eq!((songs[0].title.as_str(), songs[0].mixes), ("bare", 3));
         assert_eq!(songs[0].folder, bare);
     }
 }

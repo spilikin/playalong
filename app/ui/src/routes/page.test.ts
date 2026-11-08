@@ -369,3 +369,77 @@ describe('editing mixes', () => {
     expect(mixer.getByText(/needs the song’s tempo/)).toBeTruthy();
   });
 });
+
+describe('song editing', () => {
+  async function songPanel() {
+    render(Page);
+    await fireEvent.click(await screen.findByRole('button', { name: 'Open song folder…' }));
+    await screen.findByRole('heading', { name: 'Kad izdzisīs' });
+    await fireEvent.click(screen.getByRole('button', { name: 'Song…' }));
+    return within(await screen.findByRole('region', { name: 'Song' }));
+  }
+
+  it('sets where the song starts to the playhead, then plays on with the new timing', async () => {
+    ipc.song_retime = () => opened;
+    const panel = await songPanel();
+    await heard(4.5);
+    await fireEvent.click(panel.getByRole('button', { name: 'Set to playhead' }));
+    expect(calls.find((c) => c.cmd === 'song_retime')?.args).toEqual({ folder: '/lib/kad-izdzisis', start: 24.5, bpm: null });
+    await waitFor(() => expect(calls.filter((c) => c.cmd === 'playback_open')).toHaveLength(2));
+    await waitFor(() => expect(calls.find((c) => c.cmd === 'playback_seek')?.args).toEqual({ mixSeconds: 4.5 }));
+  });
+
+  it('taps the tempo and sets it', async () => {
+    ipc.song_retime = () => opened;
+    const now = vi.spyOn(performance, 'now');
+    const panel = await songPanel();
+    for (const t of [1000, 1500, 2000, 2500, 3000]) {
+      now.mockReturnValue(t);
+      await fireEvent.click(panel.getByRole('button', { name: 'Tap' }));
+    }
+    expect((panel.getByRole('spinbutton', { name: 'BPM' }) as HTMLInputElement).value).toBe('120');
+    await fireEvent.click(panel.getByRole('button', { name: 'Set BPM' }));
+    expect(calls.find((c) => c.cmd === 'song_retime')?.args).toEqual({ folder: '/lib/kad-izdzisis', start: null, bpm: 120 });
+    now.mockRestore();
+  });
+
+  it('finds the chords again', async () => {
+    ipc.song_retime = () => opened;
+    const panel = await songPanel();
+    await fireEvent.click(panel.getByRole('button', { name: 'Detect again' }));
+    expect(calls.find((c) => c.cmd === 'song_retime')?.args).toEqual({ folder: '/lib/kad-izdzisis', start: null, bpm: null });
+  });
+
+  it('builds a GarageBand project in a key; one left behind by a timing change offers Make again', async () => {
+    const project = 'mixes/s - GarageBand 120 BPM -1.band';
+    openResult = {
+      ...opened,
+      song: { ...opened.song, garagebands: [{ folder: 'mixes/s - GarageBand 120 BPM -1', bpm: 120, transpose: -1, project, outdated: true }] },
+    };
+    ipc.song_garageband = () => opened;
+    const panel = await songPanel();
+    expect(panel.getByText(/out of date/)).toBeTruthy();
+    await fireEvent.click(panel.getByRole('button', { name: 'Make again' }));
+    expect(calls.find((c) => c.cmd === 'song_garageband')?.args).toEqual({ folder: '/lib/kad-izdzisis', transpose: -1 });
+    await fireEvent.click(panel.getByRole('button', { name: 'Down a semitone' }));
+    await fireEvent.click(panel.getByRole('button', { name: 'Make project' }));
+    expect(calls.filter((c) => c.cmd === 'song_garageband').at(-1)?.args).toEqual({ folder: '/lib/kad-izdzisis', transpose: -1 });
+  });
+
+  it('deletes the song after asking and goes back to the Library', async () => {
+    maker.installed = { version: '2026.11.08', series: 1, commit: 'abc', model: 'sw' };
+    ipc.runtime_status = () => ({ installed: maker.installed, busy: false });
+    ipc.default_library = () => '/m/Playalong';
+    ipc.list_library = () => [];
+    ipc['plugin:dialog|message'] = () => 'Move to Trash';
+    render(Page);
+    await fireEvent.click(await screen.findByRole('button', { name: 'Open folder…' }));
+    await screen.findByRole('heading', { name: 'Kad izdzisīs' });
+    await fireEvent.click(screen.getByRole('button', { name: 'Song…' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Delete song…' }));
+    await waitFor(() =>
+      expect(calls.find((c) => c.cmd === 'delete_song')?.args).toEqual({ folder: '/lib/kad-izdzisis', library: '/m/Playalong' }),
+    );
+    expect(await screen.findByRole('heading', { name: 'Library' })).toBeTruthy();
+  });
+});

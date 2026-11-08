@@ -10,6 +10,7 @@
   import MakingCard from '$lib/MakingCard.svelte';
   import MixList from '$lib/MixList.svelte';
   import Mixer from '$lib/Mixer.svelte';
+  import SongPanel from '$lib/SongPanel.svelte';
   import ThemeToggle from '$lib/ThemeToggle.svelte';
   import AppUpdate from '$lib/AppUpdate.svelte';
   import { checkAppUpdate } from '$lib/selfUpdate.svelte';
@@ -50,6 +51,11 @@
   let scroller = $state<HTMLElement>();
   // The mix list's Edit mode: the main area shows the mixer of the mix playing instead of the chords.
   let editing = $state(false);
+  // Song… in the toolbar: the song's own settings in the main area. One or the other, never both.
+  let songOpen = $state(false);
+  $effect(() => {
+    if (editing) songOpen = false;
+  });
   // Song time to wait at once the song is open (`--at` on the command line).
   let resumeAt: number | null = null;
 
@@ -107,6 +113,7 @@
       }
       await openPlayback(result.folder);
       editing = false;
+      songOpen = false;
       opened = result;
       error = '';
       remember(path);
@@ -115,6 +122,18 @@
     } catch (e) {
       error = String(e);
     }
+  }
+
+  /** The song file changed under the player (new timing, a GarageBand project): the engine takes it up and
+   * plays on from the same moment. */
+  async function songChanged(result: OpenedSong) {
+    const at = time;
+    const wasPlaying = playing;
+    await openPlayback(result.folder, playback.current);
+    opened = result;
+    const timeline = playback.timeline;
+    if (timeline) await seek((at - timeline.source_offset) / timeline.tempo);
+    if (wasPlaying) await play();
   }
 
   function toLibrary() {
@@ -170,7 +189,7 @@
     } else if (event.key === 'ArrowLeft') seekMix(mixSeconds - 5);
     else if (event.key === 'ArrowRight') seekMix(mixSeconds + 5);
     else if (event.key === 'Home') restart();
-    else if (/^Digit[1-4]$/.test(event.code) && !event.metaKey && !event.ctrlKey) {
+    else if (/^Digit[1-9]$/.test(event.code) && !event.metaKey && !event.ctrlKey) {
       const choice = playback.mixes[Number(event.code.slice(5)) - 1];
       if (choice) void chooseMix(choice.id);
     }
@@ -270,6 +289,14 @@
       <div class="tools">
         <AppUpdate />
         <ThemeToggle />
+        <button
+          class="open"
+          aria-pressed={songOpen}
+          onclick={() => {
+            songOpen = !songOpen;
+            if (songOpen) editing = false;
+          }}>{s.songButton}</button
+        >
         {#if maker.installed}
           <button class="open" onclick={toLibrary}>{s.backToLibrary}</button>
         {:else}
@@ -286,7 +313,15 @@
 
     <div class="main">
       {#if error}<p class="error banner" role="alert">{error}</p>{/if}
-      {#if editing && recipe}
+      {#if songOpen}
+        <SongPanel
+          {opened}
+          songSeconds={time}
+          transpose={recipe?.transpose ?? 0}
+          onChanged={songChanged}
+          onDeleted={toLibrary}
+        />
+      {:else if editing && recipe}
         <Mixer {recipe} song={opened.song} />
       {:else}
       {#if !song.chords}
