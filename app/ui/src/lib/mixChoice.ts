@@ -55,7 +55,16 @@ export function saveChoice(choice: MixChoice) {
   }
 }
 
-export const mixCount = (choice: MixChoice) => choice.presets.length + (choice.custom ? 1 : 0);
+const mixesOnly = (choice: MixChoice) => choice.presets.length + (choice.custom ? 1 : 0);
+
+/** Things to make: each mix, and the GarageBand stems as one more. */
+export const mixCount = (choice: MixChoice) => mixesOnly(choice) + (choice.garageband ? 1 : 0);
+
+export function makeLabel(choice: MixChoice, s: Strings): string {
+  const mixes = mixesOnly(choice);
+  if (!mixes) return choice.garageband ? s.makeGarageBand : s.makeMixes(0);
+  return choice.garageband ? s.makeMixesAndGarageBand(mixes) : s.makeMixes(mixes);
+}
 
 export function mixSummary(choice: MixChoice, s: Strings): string {
   const extra = [
@@ -65,5 +74,8 @@ export function mixSummary(choice: MixChoice, s: Strings): string {
     .filter(Boolean)
     .join(' ');
   const names = [...choice.presets.map((p) => s.mixNames[p]?.[0] ?? p), ...(choice.custom ? [s.myMix] : [])];
-  return names.map((n) => (extra ? `${n} ${extra}` : n)).join(', ');
+  const mixes = names.map((n) => (extra ? `${n} ${extra}` : n));
+  // The stems keep the song's tempo, so only a key change shows next to them.
+  const key = choice.transpose ? ` ${choice.transpose > 0 ? '+' : '−'}${Math.abs(choice.transpose)}` : '';
+  return [...mixes, ...(choice.garageband ? [`${s.garageBandStems}${key}`] : [])].join(', ');
 }

@@ -110,3 +110,16 @@ def test_updating_the_downloader_needs_the_portable_runtime(monkeypatch):
     monkeypatch.delenv("PLAYALONG_RUNTIME", raising=False)
     with pytest.raises(SystemExit, match="uv lock --upgrade-package yt-dlp"):
         main(["update-downloader"])
+
+
+def test_garageband_stems_can_be_made_on_their_own(tmp_path, monkeypatch):
+    from playalong import cli, garageband
+
+    made = {}
+    monkeypatch.setattr(garageband, "export_stems",
+                        lambda track, start, bpm, transpose: made.update(track=track, start=start, transpose=transpose))
+    monkeypatch.setattr(cli, "_update_song", lambda track, chords=None: made.update(updated=track))
+    cli.main(["garageband", str(tmp_path), "-k", "-2", "--no-trim"])
+    assert made == {"track": tmp_path, "start": 0.0, "transpose": -2, "updated": tmp_path}
+    with pytest.raises(SystemExit):
+        cli.main(["garageband", str(tmp_path), "-k", "13"])

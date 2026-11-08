@@ -4,7 +4,17 @@
   import { strings } from './i18n.svelte';
   import { makeMixes } from './maker.svelte';
   import { transposeLabel } from './maker';
-  import { PRESETS, STEMS, loadChoice, mixCount, mixSummary, saveChoice, type MixChoice, type Stem } from './mixChoice';
+  import {
+    PRESETS,
+    STEMS,
+    loadChoice,
+    makeLabel,
+    mixCount,
+    mixSummary,
+    saveChoice,
+    type MixChoice,
+    type Stem,
+  } from './mixChoice';
 
   let { folder, onClose }: { folder: string; onClose: () => void } = $props();
 
@@ -121,7 +131,7 @@
   <div class="grow"></div>
   <div class="bottom">
     <span class="muted small">{count ? mixSummary(choice, s) : s.chooseAMix}</span>
-    <button class="primary" disabled={!count} onclick={make}>{s.makeMixes(count)}</button>
+    <button class="primary" disabled={!count} onclick={make}>{makeLabel(choice, s)}</button>
   </div>
 </section>
 

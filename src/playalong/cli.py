@@ -77,7 +77,7 @@ def _mix(args: argparse.Namespace, track_dir: Path) -> None:
     if args.garageband:
         from playalong.garageband import export_stems
 
-        export_stems(track_dir, start, args.bpm, args.transpose)
+        print(f"  {export_stems(track_dir, start, args.bpm, args.transpose)}")
 
 
 def _add_mix_options(p: argparse.ArgumentParser, garageband: bool = False) -> None:
@@ -144,6 +144,16 @@ def build_parser() -> argparse.ArgumentParser:
     mix.add_argument("track", type=Path, help="track directory")
     _add_mix_options(mix)
 
+    gb = sub.add_parser("garageband", help="write only the stems for a GarageBand project, no mixes")
+    gb.add_argument("track", type=Path, help="track directory")
+    gb.add_argument("-k", "--transpose", type=int, default=0, metavar="SEMITONES",
+                    help="move the pitch up or down by semitones (e.g. -2)")
+    gb.add_argument("--bpm", type=float, help="the song's tempo, if detection gets it wrong (saved for the track)")
+    gb_trim = gb.add_mutually_exclusive_group()
+    gb_trim.add_argument("-s", "--start", type=float, metavar="SECONDS",
+                         help="where the song starts, overriding intro detection")
+    gb_trim.add_argument("--no-trim", action="store_true", help="keep the video intro")
+
     ch = sub.add_parser("chords", help="detect the chords (writes chords.html, chords.txt and chords.lab)")
     ch.add_argument("track", type=Path, help="track directory")
     ch.add_argument("--bpm", type=float, help="the song's tempo, if detection gets it wrong (saved for the track)")
@@ -205,6 +215,15 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.command == "mix":
         _mix(args, args.track)
+        _update_song(args.track)
+        return
+
+    if args.command == "garageband":
+        from playalong import garageband
+
+        if not -12 <= args.transpose <= 12:
+            raise SystemExit("--transpose must be between -12 and 12 semitones")
+        print(f"  {garageband.export_stems(args.track, 0.0 if args.no_trim else args.start, args.bpm, args.transpose)}")
         _update_song(args.track)
         return
 

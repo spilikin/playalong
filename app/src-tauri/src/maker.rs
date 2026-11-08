@@ -108,7 +108,15 @@ pub struct MixChoice {
 /// pass: anything else could be taken for an option.
 pub fn mix_args(folder: &str, choice: &MixChoice) -> Result<Vec<String>, String> {
     if choice.presets.is_empty() && choice.custom.is_none() {
-        return Err("Choose at least one mix".into());
+        if !choice.garageband {
+            return Err("Choose at least one mix".into());
+        }
+        // Only the stems: tempo and count-in don't apply to them.
+        let mut args = vec!["garageband".to_string(), folder.to_string()];
+        if choice.transpose != 0 {
+            args.extend(["-k".into(), choice.transpose.to_string()]);
+        }
+        return Ok(args);
     }
     let mut args = vec!["mix".to_string(), folder.to_string()];
     for preset in &choice.presets {
@@ -394,6 +402,12 @@ mod tests {
         assert!(mix_args("/s", &odd).is_err());
         let stem = choice(r#"{"presets":[],"custom":{"kazoo":0},"transpose":0,"tempo":1,"count_in":1,"garageband":false}"#);
         assert!(mix_args("/s", &stem).is_err());
+    }
+
+    #[test]
+    fn garageband_stems_can_be_made_without_any_mix() {
+        let only = choice(r#"{"presets":[],"custom":null,"transpose":-2,"tempo":0.8,"count_in":2,"garageband":true}"#);
+        assert_eq!(mix_args("/s", &only).unwrap(), ["garageband", "/s", "-k", "-2"]);
     }
 
     #[test]

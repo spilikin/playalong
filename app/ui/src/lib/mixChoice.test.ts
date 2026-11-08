@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { STRINGS } from './i18n.svelte';
-import { DEFAULT_CHOICE, loadChoice, mixCount, mixSummary, saveChoice, type MixChoice } from './mixChoice';
+import { DEFAULT_CHOICE, loadChoice, makeLabel, mixCount, mixSummary, saveChoice, type MixChoice } from './mixChoice';
 
 const s = STRINGS.en;
 
@@ -26,5 +26,14 @@ describe('mix choices', () => {
     expect(mixCount(c)).toBe(3);
     expect(mixSummary(c, s)).toBe('Guide −2, No guitar −2, My mix −2');
     expect(mixSummary({ ...c, transpose: 0, tempo: 0.8, custom: null }, s)).toBe('Guide 80%, No guitar 80%');
+  });
+
+  it('makes GarageBand stems on their own too, in the chosen key', () => {
+    const only: MixChoice = { ...DEFAULT_CHOICE, presets: [], garageband: true, transpose: -2 };
+    expect(mixCount(only)).toBe(1);
+    expect(mixSummary(only, s)).toBe('GarageBand stems −2');
+    expect(makeLabel(only, s)).toBe('Make GarageBand stems');
+    expect(makeLabel({ ...only, presets: ['guide'] }, s)).toBe('Make 1 mix + GarageBand');
+    expect(makeLabel({ ...only, presets: ['guide', 'backing'], garageband: false }, s)).toBe('Make 2 mixes');
   });
 });

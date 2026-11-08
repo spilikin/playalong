@@ -259,6 +259,19 @@ describe('new mixes', () => {
     expect(choice.custom).toEqual({ vocals: 0, guitar: -12, bass: 0, drums: 0, piano: null, other: 0 });
   });
 
+  it('makes only the GarageBand stems', async () => {
+    ipc.make_mixes = () => withNew;
+    const panel = within(await openPanel());
+    for (const name of ['Guide', 'No guitar', 'Vocals only']) {
+      await fireEvent.click(panel.getByRole('button', { name, pressed: true }));
+    }
+    expect((panel.getByRole('button', { name: /^Make/ }) as HTMLButtonElement).disabled).toBe(true);
+    await fireEvent.click(panel.getByRole('checkbox', { name: /GarageBand/ }));
+    await fireEvent.click(panel.getByRole('button', { name: 'Make GarageBand stems' }));
+    const choice = (calls.find((c) => c.cmd === 'make_mixes')?.args as { choice: unknown }).choice;
+    expect(choice).toMatchObject({ presets: [], custom: null, garageband: true });
+  });
+
   it('says why mixes could not be made', async () => {
     ipc.make_mixes = () => {
       throw 'Busy: making a song';
