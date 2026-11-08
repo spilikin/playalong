@@ -4,9 +4,15 @@
   "version": "0.1.0",
   "identifier": "dev.playalong",
   "build": {
-    "beforeDevCommand": { "script": "npm run dev", "cwd": "../ui" },
+    "beforeDevCommand": {
+      "script": "npm run dev",
+      "cwd": "../ui"
+    },
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": { "script": "npm run build", "cwd": "../ui" },
+    "beforeBuildCommand": {
+      "script": "npm run build",
+      "cwd": "../ui"
+    },
     "frontendDist": "../ui/build"
   },
   "app": {
@@ -19,18 +25,49 @@
         "minHeight": 600,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
-        "trafficLightPosition": { "x": 20, "y": 26 }
+        "trafficLightPosition": {
+          "x": 20,
+          "y": 26
+        }
       }
     ],
     "security": {
       "csp": null,
-      "assetProtocol": { "enable": true, "scope": [] }
+      "assetProtocol": {
+        "enable": true,
+        "scope": []
+      }
     }
   },
   "bundle": {
     "active": true,
-    "targets": ["app"],
-    "macOS": { "files": { "Resources/Assets.car": "icons/Assets.car" } },
-    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"]
+    "targets": [
+      "app"
+    ],
+    "resources": {
+      "../../src/playalong/*.py": "python/playalong/"
+    },
+    "macOS": {
+      "files": {
+        "Resources/Assets.car": "icons/Assets.car"
+      },
+      "signingIdentity": "-"
+    },
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDA4NUFFNjk5OUI4NkIxQUYKUldTdnNZYWJtZVphQ0JxOFJWL1N3SC9nSWhqWDBuUmRkdlZwZWx4czBRMWF1Sjk4eTg2S1I5NEEK",
+      "endpoints": [
+        "https://github.com/spilikin/playalong/releases/download/updates/latest.json"
+      ]
+    }
   }
 }

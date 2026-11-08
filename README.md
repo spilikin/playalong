@@ -8,7 +8,7 @@ Download a song from YouTube (or use a local file), split it into instrument ste
 playalong tracks, mainly for practising guitar.
 
 Two parts: a command-line tool (`src/`) that makes everything, and a small macOS [player app](#player-app)
-(`app/`) that plays a mix with the chords following along.
+(`app/`) that runs it for you and plays a mix with the chords following along.
 
 ![The player with "Kad izdzisīs" by Miks Galvanovskis: mixes on the left, the chord now and the next four, and the song in bars](docs/screenshot.png)
 *Playing "Kad izdzisīs" by Miks Galvanovskis.*
@@ -191,7 +191,8 @@ uv run python runtime/build.py
 ```
 
 builds `dist/Playalong Runtime/` (about 1.5 GB), a folder that runs the CLI on another Apple Silicon Mac
-with nothing installed: copy it over and run `"Playalong Runtime/bin/playalong" run <url>`. Inside are a
+with nothing installed: the [app](#player-app) downloads it, or copy it over and run
+`"Playalong Runtime/bin/playalong" run <url>`. Inside are a
 standalone Python with the project and its packages, the separation model, and ffmpeg, ffprobe and deno
 with their libraries; `runtime.json` holds its version. Building needs this Mac's setup (uv, Homebrew's
 ffmpeg and deno, the model fetched once by `playalong separate`).
@@ -207,12 +208,35 @@ folder, ahead of the ones it came with. A download that fails for any reason oth
 
 ## Player app
 
-A small macOS app (Tauri 2 + Svelte, in `app/`) that opens a song made by the CLI and plays one of its
-mixes with the chords following along. During a mix's count-in it shows big numbers in time with the
-clicks, then the current chord, the next four, and the song in bars with the playing beat highlighted.
+A small macOS app (Tauri 2 + Svelte, in `app/`) that makes songs and plays them: one of a song's mixes
+with the chords following along. During a mix's count-in it shows big numbers in time with the clicks,
+then the current chord, the next four, and the song in bars with the playing beat highlighted.
 
-It reads `<song>/<song>.playalong` and plays the mix files next to it; nothing is downloaded or
-processed in the app.
+### Install
+
+Download `Playalong-<version>-arm64.zip` from the [latest release](https://github.com/spilikin/playalong/releases/latest)
+(Apple Silicon), unzip it and move `Playalong.app` to Applications. The app isn't notarized by Apple, so
+the first start is refused: open it once, then **System Settings › Privacy & Security › Open Anyway**
+(or run `xattr -dr com.apple.quarantine /Applications/Playalong.app`).
+
+On first start it offers to download the audio tools (the [portable runtime](#portable-runtime) and the
+separation model, about 490 MB, 1.5 GB unpacked, into `~/Library/Application Support/dev.playalong`).
+After that it opens on the **Library**, the songs in `~/Music/Playalong`: paste a YouTube link (or drop
+or choose an audio file), pick a key, **Make song**, and it runs the CLI's `run` and opens the song when
+it's done. Songs made elsewhere open with **Open folder…** or by dropping a folder on the window.
+
+### Updates
+
+Two channels, both on GitHub Releases:
+
+- **The app** checks `updates/latest.json` at start, downloads a newer version in the background
+  (signed with the project's key, checked against the public key in `tauri.conf.json`) and shows
+  **Update ready · Restart**.
+- **The audio tools** come from `updates/manifest.json`; the Library's footer offers an update with its
+  size. A runtime and the model update separately, so a new runtime doesn't download the model again.
+  yt-dlp updates on its own at most once a day, before a download.
+
+### Build
 
 ```sh
 cd app/ui && npm ci && cd ..
@@ -223,11 +247,22 @@ open target/debug/bundle/macos/Playalong.app
 `open -a target/debug/bundle/macos/Playalong.app --args <song folder> --at 94` opens a song straight
 away, waiting at that time in the song.
 
-Then **Open song folder…** (or drop a folder on the window) and choose a track folder from
-`library/`.
+### Release
+
+```sh
+uv run python runtime/build.py && uv run python runtime/package.py --publish   # new audio tools
+app/scripts/release.sh "what's new"                                            # new app version
+```
+
+Both need `gh` signed in and the commit pushed. For the app, bump `version` in
+`app/src-tauri/tauri.conf.json` first. `release.sh` signs with `~/.tauri/playalong.key`, whose password
+is in the login Keychain (`playalong-updater-key`); without that key, installed apps can't be updated,
+so keep a backup of both.
+
+### Using it
 
 - The toolbar sits in the window's title bar: Restart and Play, the album cover with title, key,
-  tempo and position, a light/dark toggle (the system's appearance until you use it), and Open.
+  tempo and position, a light/dark toggle (the system's appearance until you use it), and ‹ Library.
 - The sidebar lists the four main mixes with keys 1–4 (Original, Guide, No guitar, Vocals only), then
   any others. Switching mixes keeps your place in the song; a transposed mix shows the key, chords and
   shapes moved with it.
