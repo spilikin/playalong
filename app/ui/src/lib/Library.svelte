@@ -73,9 +73,9 @@
     <span class="muted" data-tauri-drag-region>{s.songCount(maker.songs.length)}</span>
     <span class="grow" data-tauri-drag-region></span>
     <input class="search" type="search" placeholder={s.search} aria-label={s.searchLabel} bind:value={query} />
+    <button onclick={onPick}>{s.openFolderShort}</button>
     <AppUpdate />
     <ThemeToggle />
-    <button onclick={onPick}>{s.openFolderShort}</button>
   </header>
 
   <form class="new" aria-label={s.newSong} onsubmit={make}>

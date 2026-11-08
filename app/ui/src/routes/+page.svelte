@@ -253,6 +253,11 @@
     <div class="lights" data-tauri-drag-region></div>
     <header class="bar" data-tauri-drag-region>
       <div class="controls">
+        {#if maker.installed}
+          <button class="open" onclick={toLibrary}>{s.backToLibrary}</button>
+        {:else}
+          <button class="open" onclick={pick}>{s.open}</button>
+        {/if}
         <button class="restart" onclick={restart} aria-label={s.restart} title={s.restartTitle}>↺</button>
         <button class="play" onclick={toggle} aria-label={playing ? s.pause : s.play} title={s.playTitle}
           >{playing ? '❚❚' : '▶'}</button
@@ -290,11 +295,6 @@
       <div class="tools">
         <AppUpdate />
         <ThemeToggle />
-        {#if maker.installed}
-          <button class="open" onclick={toLibrary}>{s.backToLibrary}</button>
-        {:else}
-          <button class="open" onclick={pick}>{s.open}</button>
-        {/if}
       </div>
     </header>
 
@@ -506,6 +506,14 @@
     padding: 3px 10px;
     border-radius: 7px;
     background: transparent;
+  }
+  /* First in the toolbar, before the round playback buttons, and shaped like the other text buttons. */
+  .controls .open {
+    display: block;
+    margin-right: 6px;
+    padding: 3px 10px;
+    border-radius: 7px;
+    white-space: nowrap;
   }
 
   .tray {

@@ -286,8 +286,9 @@ so keep a backup of both.
 
 ### Using it
 
-- The toolbar sits in the window's title bar: Restart and Play, the album cover with title, key,
-  tempo and position, a light/dark toggle (the system's appearance until you use it) and ‹ Library.
+- The toolbar sits in the window's title bar: ‹ Library, Restart and Play, the album cover with title,
+  key, tempo and position, and in the right corner (as on every screen) a light/dark toggle (the
+  system's appearance until you use it).
 - The sidebar lists the song's mixes with what each one changes ("guitar off · −2 · 90%"); keys 1–9
   switch. Switching keeps your place in the song; a mix in another key shows the key, chords and
   shapes moved with it.
