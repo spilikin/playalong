@@ -1,5 +1,8 @@
+mod engine;
 mod library;
 mod maker;
+mod mixes;
+mod playback;
 mod runtime;
 mod song;
 
@@ -58,6 +61,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .manage(maker::Maker::default())
+        .manage(playback::Playback::default())
         .invoke_handler(tauri::generate_handler![
             open_song,
             launch_args,
@@ -65,7 +69,19 @@ pub fn run() {
             maker::runtime_check,
             maker::runtime_install,
             maker::make_song,
-            maker::make_mixes,
+            maker::song_refresh,
+            maker::song_retime,
+            maker::song_export,
+            maker::song_garageband,
+            maker::delete_song,
+            mixes::mixes_load,
+            mixes::mixes_save,
+            playback::playback_open,
+            playback::playback_play,
+            playback::playback_pause,
+            playback::playback_seek,
+            playback::playback_set_mix,
+            playback::playback_close,
             maker::open_in_garageband,
             maker::cancel_make,
             maker::default_library,

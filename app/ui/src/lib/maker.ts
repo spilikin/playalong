@@ -49,10 +49,10 @@ export function progressText(p: Progress, s: Strings): string {
 
 export const isYouTube = (source: string) => /^https?:\/\//.test(source.trim());
 
-/** The CLI's step (1–5) from its "N/5 …" lines; 0 before the first. */
+/** The CLI's step (1–4) from its "N/4 …" lines; 0 before the first. */
 export function stepOf(lines: string[]): number {
   for (let i = lines.length - 1; i >= 0; i--) {
-    const m = /^([1-5])\/5 /.exec(lines[i]);
+    const m = /^([1-4])\/4 /.exec(lines[i]);
     if (m) return Number(m[1]);
   }
   return 0;
@@ -70,9 +70,7 @@ export interface SongProgress {
 }
 
 // Roughly how the time splits for a typical song on Apple Silicon: splitting into instruments dominates.
-const STEP_WEIGHTS = [0.1, 0.02, 0.8, 0.03, 0.05];
-// A new song gets only its original mix; the others are made on request in the player.
-const MIXES_MADE = 1;
+const STEP_WEIGHTS = [0.1, 0.02, 0.8, 0.08];
 
 const lastNumber = (lines: string[], pattern: RegExp) => {
   for (let i = lines.length - 1; i >= 0; i--) {
@@ -86,7 +84,7 @@ const lastNumber = (lines: string[], pattern: RegExp) => {
  * own time estimate, and the mix files as they're written. */
 export function progressOf(lines: string[]): SongProgress {
   const step = stepOf(lines);
-  const since = lines.slice(lines.findLastIndex((l) => /^[1-5]\/5 /.test(l)) + 1);
+  const since = lines.slice(lines.findLastIndex((l) => /^[1-4]\/4 /.test(l)) + 1);
   let share: number | null = null;
   let left: number | null = null;
   if (step === 1) {
@@ -98,8 +96,6 @@ export function progressOf(lines: string[]): SongProgress {
       left = lastNumber(since, /Estimated time remaining: ([\d.]+) seconds/) ?? total;
       share = Math.min(1, Math.max(0, 1 - left / total));
     }
-  } else if (step === 4) {
-    share = Math.min(1, since.filter((l) => /^ {2}\//.test(l)).length / MIXES_MADE);
   }
   const before = STEP_WEIGHTS.slice(0, Math.max(step - 1, 0)).reduce((a, b) => a + b, 0);
   const overall = step ? before + STEP_WEIGHTS[step - 1] * (share ?? 0) : 0;

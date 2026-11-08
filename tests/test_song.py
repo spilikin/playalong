@@ -55,24 +55,19 @@ def test_the_song_file_sits_in_the_track_folder_named_after_it(tmp_path):
 def test_it_describes_the_song_its_timing_and_files(tmp_path):
     d = track(tmp_path)
     song = json.loads(write_song(d, chords()).read_text())
-    assert song["format"] == SONG_FORMAT and song["version"] == 1
+    assert song["format"] == SONG_FORMAT and song["version"] == 2
     assert song["title"] == "Artist - Song" and song["artist"] == "Artist"
     assert song["source"] == {"url": "https://www.youtube.com/watch?v=abc123", "youtube_id": "abc123"}
     assert song["audio"] == {"file": "source.wav", "sample_rate": 44100, "duration": 12.0}
     assert song["song_start"] == {"seconds": 2.0, "source": "sponsorblock"}
-    assert song["tempo"] == {"bpm": 120.0, "confidence": 0.7, "source": "detected", "beats_per_bar": 4}
+    assert song["tempo"] == {"bpm": 120.0, "confidence": 0.7, "source": "detected", "beats_per_bar": 4, "beat": None}
     assert song["key"] == "Bb minor"
     assert song["beats"] == [2.0 + i * 0.5 for i in range(9)]
     assert song["bars"] == [2.5, 4.5]  # pickup of one beat, then a bar every four beats
     assert song["stems"] == {"bass": "stems/bass.wav", "drums": "stems/drums.wav", "guitar": "stems/guitar.wav"}
-    unknown = {"source_offset": None, "count_in": None}
-    assert song["mixes"] == [
-        {"file": "mixes/artist-song - backing @80%.wav", "name": "backing", "tempo": 0.8, "transpose": 0, **unknown},
-        {"file": "mixes/artist-song - no-guitar.mp3", "name": "no-guitar", "tempo": 1.0, "transpose": 0, **unknown},
-        {"file": "mixes/artist-song - quiet-guitar.flac", "name": "quiet-guitar", "tempo": 1.0, "transpose": 0,
-         **unknown},
-    ]
-    assert song["garageband"] == {"folder": "mixes/artist-song - GarageBand 120 BPM", "bpm": 120, "transpose": 0}
+    assert "mixes" not in song  # mixes are recipes in mixes.json, played live; rendered files aren't listed
+    assert song["garageband"] == {"folder": "mixes/artist-song - GarageBand 120 BPM", "bpm": 120, "transpose": 0,
+                                  "outdated": False}
     assert song["cover"] is None
     assert song["chord_sheet"] is None  # no chords.html in this folder
 
@@ -84,7 +79,7 @@ def test_chords_come_with_their_shapes(tmp_path):
         {"start": 2.5, "end": 4.5, "name": "Bbm", "root": "Bb", "quality": "minor"},
         {"start": 4.5, "end": 6.0, "name": "Gb", "root": "Gb", "quality": "major"},
     ]
-    assert set(song["chord_shapes"]) == {"Bbm", "Gb"}
+    assert {"Bbm", "Gb"} <= set(song["chord_shapes"])  # and every other key's chords, for transposed mixes
     assert song["chord_shapes"]["Bbm"] == {"frets": [-1, 1, 3, 3, 2, 1], "fingers": [0, 1, 3, 4, 2, 1],
                                            "barre": {"fret": 1, "strings": [1, 5]}}
     assert song["chord_shapes"]["Gb"]["barre"] == {"fret": 2, "strings": [0, 5]}
@@ -100,28 +95,15 @@ def test_later_steps_keep_the_chords_and_pick_up_new_files(tmp_path):
     assert read_song(d)["key"] == "Bb minor"
     song = json.loads(write_song(d).read_text())
     assert song["key"] == "Bb minor" and len(song["chords"]) == 3
-    assert [m["name"] for m in song["mixes"]] == ["guide"]
     assert song["chord_sheet"] == "chords.html"
 
 
 def test_a_fresh_download_already_has_a_song_file(tmp_path):
     d = track(tmp_path, stems=False, mixes=False)
     song = json.loads(write_song(d).read_text())
-    assert song["stems"] == {} and song["mixes"] == [] and song["garageband"] is None
+    assert song["stems"] == {} and song["garageband"] is None
     assert song["chords"] is None and song["chord_shapes"] == {} and song["beats"] == []
     assert song["key"] is None
-
-
-def test_mixes_carry_the_timing_recorded_when_they_were_rendered(tmp_path):
-    d = track(tmp_path)
-    count = {"bars": 1, "clicks": [{"time": 0.25, "accent": True, "count": 1}], "downbeat": 2.25}
-    (d / "mixes" / "mixes.json").write_text(json.dumps(
-        {"artist-song - no-guitar.mp3": {"name": "no-guitar", "tempo": 1.0, "source_offset": 0.1, "count_in": count},
-         "artist-song - gone.mp3": {"name": "gone", "tempo": 1.0, "source_offset": 0.0, "count_in": None}}))
-    song = json.loads(write_song(d).read_text())
-    by_name = {m["name"]: m for m in song["mixes"]}
-    assert by_name["no-guitar"]["source_offset"] == 0.1 and by_name["no-guitar"]["count_in"] == count
-    assert "gone" not in by_name  # deleted files drop out
 
 
 def test_the_cover_is_listed_with_where_it_came_from(tmp_path):
@@ -133,25 +115,33 @@ def test_the_cover_is_listed_with_where_it_came_from(tmp_path):
     assert read_song(d)["cover"] == {"file": "cover.jpg", "source": "itunes", "album": "Album"}
 
 
-def test_transposed_mixes_come_with_their_key_chord_names_and_shapes(tmp_path):
+def test_song_file_2_has_every_key_and_the_counted_in_beat(tmp_path):
     d = track(tmp_path)
-    transposed = [d / "mixes" / n for n in ("artist-song - guide -2 @80%.mp3", "artist-song - no-guitar +3.mp3")]
-    for p in transposed:
-        p.write_bytes(b"")
+    info = json.loads((d / "info.json").read_text())
+    (d / "info.json").write_text(json.dumps({**info, "beat_offset": 2.5}))
     song = json.loads(write_song(d, chords()).read_text())
-    guide = next(m for m in song["mixes"] if m["name"] == "guide")
-    assert guide["tempo"] == 0.8 and guide["transpose"] == -2
-    assert song["transpositions"] == {
-        "-2": {"key": "G# minor", "chords": {"Bbm": "G#m", "Gb": "E"}},
-        "+3": {"key": "C# minor", "chords": {"Bbm": "C#m", "Gb": "A"}},
-    }
-    assert set(song["chord_shapes"]) == {"Bbm", "Gb", "G#m", "E", "C#m", "A"}
+    assert song["tempo"]["beat"] == 2.5
+    assert sorted(song["transpositions"], key=int) == [f"{n:+d}" for n in range(-12, 13) if n]
+    assert song["transpositions"]["-2"] == {"key": "G# minor", "chords": {"Bbm": "G#m", "Gb": "E"}}
+    assert song["transpositions"]["+3"]["key"] == "C# minor"
+    assert song["transpositions"]["-1"]["key"] == "A minor"
+    assert {"G#m", "E", "C#m", "A"} <= set(song["chord_shapes"])
     assert song["chord_shapes"]["E"]["frets"] == [0, 2, 2, 1, 0, 0]
 
-    for p in transposed:
-        p.unlink()
-    song = json.loads(write_song(d).read_text())
-    assert song["transpositions"] == {} and set(song["chord_shapes"]) == {"Bbm", "Gb"}
+
+def test_a_garageband_project_is_outdated_after_the_timing_changed(tmp_path):
+    import os
+
+    d = track(tmp_path)
+    project = d / "mixes" / "artist-song - GarageBand 120 BPM.band"
+    project.mkdir()
+    os.utime(project, (1_000, 1_000))
+    info = json.loads((d / "info.json").read_text())
+    (d / "info.json").write_text(json.dumps({**info, "timing_changed": 2_000}))
+    (gb,) = json.loads(write_song(d).read_text())["garagebands"]
+    assert gb["project"].endswith(".band") and gb["outdated"] is True
+    os.utime(project, (3_000, 3_000))
+    assert json.loads(write_song(d).read_text())["garagebands"][0]["outdated"] is False
 
 
 def test_every_garageband_folder_is_listed_one_per_key(tmp_path):
@@ -161,8 +151,8 @@ def test_every_garageband_folder_is_listed_one_per_key(tmp_path):
         (tmp_path / "mixes" / name).mkdir(parents=True)
     files = _files(tmp_path)
     assert files["garagebands"] == [
-        {"folder": "mixes/s - GarageBand 120 BPM", "bpm": 120, "transpose": 0},
-        {"folder": "mixes/s - GarageBand 120 BPM -2", "bpm": 120, "transpose": -2},
+        {"folder": "mixes/s - GarageBand 120 BPM", "bpm": 120, "transpose": 0, "outdated": False},
+        {"folder": "mixes/s - GarageBand 120 BPM -2", "bpm": 120, "transpose": -2, "outdated": False},
     ]
     assert files["garageband"] == files["garagebands"][-1]
 

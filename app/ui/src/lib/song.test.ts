@@ -2,11 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   chordLabel,
   countAt,
-  defaultMix,
   forMix,
-  groupMixes,
   indexAt,
-  mixLabel,
   mixTime,
   sheetBars,
   songTime,
@@ -17,8 +14,6 @@ import {
 } from './song';
 
 const counted: Mix = {
-  file: 'mixes/s - no-guitar.mp3',
-  name: 'no-guitar',
   tempo: 1,
   source_offset: 20,
   count_in: {
@@ -27,8 +22,8 @@ const counted: Mix = {
     downbeat: 2.25,
   },
 };
-const slow: Mix = { ...counted, file: 'mixes/s - backing @80%.mp3', name: 'backing', tempo: 0.8 };
-const old: Mix = { file: 'mixes/s - guide.mp3', name: 'guide', tempo: 1, source_offset: null, count_in: null };
+const slow: Mix = { ...counted, tempo: 0.8 };
+const old: Mix = { tempo: 1, source_offset: null, count_in: null };
 
 const song = {
   format: 'playalong-song',
@@ -46,7 +41,6 @@ const song = {
     { start: 23.25, end: 26.25, name: 'Am', root: 'A', quality: 'minor' },
   ],
   chord_shapes: {},
-  mixes: [old, slow, counted],
   audio: null,
 } as unknown as Song;
 
@@ -78,44 +72,6 @@ describe('count-in', () => {
 
   it('a mix without a count-in is always in the song', () => {
     expect(countAt(old, 0)).toEqual({ phase: 'song' });
-  });
-});
-
-describe('mixes', () => {
-  it('opens the full-speed guide mix first', () => {
-    const guide = { ...counted, file: 'mixes/s - guide.mp3', name: 'guide' };
-    const slowGuide = { ...guide, file: 'mixes/s - guide @80%.mp3', tempo: 0.8 };
-    expect(defaultMix([counted, slowGuide, guide])).toBe(guide);
-    expect(defaultMix([counted, slow])).toBe(counted);
-    expect(defaultMix([old])).toBe(old);
-  });
-
-  it('labels mixes for the picker', () => {
-    expect(mixLabel(counted)).toBe('No guitar');
-    expect(mixLabel(slow)).toBe('Backing · 80%');
-    expect(mixLabel({ ...old, file: 'mixes/s - guide.wav' })).toBe('Guide · WAV');
-  });
-
-  it('puts the four main mixes first, one each at full speed, and the rest after', () => {
-    const mix = (name: string, rest = '') => ({ ...counted, file: `mixes/s - ${name}${rest}.mp3`, name });
-    const guideWav = { ...mix('guide'), file: 'mixes/s - guide.wav' };
-    const slowOriginal = { ...mix('original', ' @80%'), tempo: 0.8 };
-    const { main, more } = groupMixes([
-      mix('backing'), guideWav, mix('vocals-only'), slowOriginal, mix('guide'), mix('original'),
-    ]);
-    expect(main.map((m) => m.file)).toEqual([
-      'mixes/s - original.mp3', 'mixes/s - guide.mp3', 'mixes/s - vocals-only.mp3',
-    ]);
-    expect(more.map((m) => m.file)).toEqual(['mixes/s - backing.mp3', 'mixes/s - guide.wav', 'mixes/s - original @80%.mp3']);
-  });
-
-  it('keeps the original key in the main slots and labels transposed mixes', () => {
-    const guide = { ...counted, file: 'mixes/s - guide.mp3', name: 'guide' };
-    const lower = { ...guide, file: 'mixes/s - guide -2.mp3', transpose: -2 };
-    expect(defaultMix([lower, guide])).toBe(guide);
-    expect(groupMixes([lower, guide]).more).toEqual([lower]);
-    expect(mixLabel(lower)).toBe('Guide · −2');
-    expect(mixLabel({ ...slow, transpose: 3 })).toBe('Backing · +3 · 80%');
   });
 });
 

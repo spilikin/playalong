@@ -30,9 +30,9 @@ describe('making a song', () => {
     expect(isYouTube('/Users/a/song.wav')).toBe(false);
   });
 
-  it('follows the CLI through its five steps', () => {
+  it('follows the CLI through its four steps', () => {
     expect(stepOf([])).toBe(0);
-    expect(stepOf(['Checking for a newer YouTube downloader', '1/5 Download', 'x', '3/5 Separate', '42%'])).toBe(3);
+    expect(stepOf(['Checking for a newer YouTube downloader', '1/4 Download', 'x', '3/4 Separate', '42%'])).toBe(3);
   });
 
   it('names the key change', () => {
@@ -68,12 +68,12 @@ describe('library', () => {
 
 describe('progress while making a song', () => {
   it('follows the download percentage', () => {
-    const p = progressOf(['1/5 Download', '[download]   0.0% of 3.52MiB', '[download]  45.5% of 3.52MiB at 2MiB/s']);
+    const p = progressOf(['1/4 Download', '[download]   0.0% of 3.52MiB', '[download]  45.5% of 3.52MiB at 2MiB/s']);
     expect(p).toMatchObject({ step: 1, share: 0.455 });
   });
 
   it('follows the separation by its own time estimate, once the model is loaded', () => {
-    const lines = ['1/5 Download', '2/5 Cover', '3/5 Separate'];
+    const lines = ['1/4 Download', '2/4 Cover', '3/4 Separate'];
     expect(progressOf(lines)).toMatchObject({ step: 3, share: null, left: null });
     lines.push('Estimated total processing time for this track: 200.00 seconds');
     expect(progressOf(lines)).toMatchObject({ step: 3, share: 0, left: 200 });
@@ -81,19 +81,14 @@ describe('progress while making a song', () => {
     expect(progressOf(lines)).toMatchObject({ step: 3, share: 0.25, left: 150 });
   });
 
-  it('finishes the mix step once the original is written', () => {
-    expect(progressOf(['3/5 Separate', '4/5 Mix', 'Writing mixes for x:'])).toMatchObject({ step: 4, share: 0 });
-    const p = progressOf(['3/5 Separate', '4/5 Mix', 'Writing mixes for x:', '  /m/x/mixes/x - original.mp3']);
-    expect(p).toMatchObject({ step: 4, share: 1 });
-  });
-
   it('adds up to one bar for the whole song, weighted by how long each step takes', () => {
     expect(progressOf([]).overall).toBe(0);
-    const halfway = progressOf(['1/5 Download', '2/5 Cover', '3/5 Separate',
+    const halfway = progressOf(['1/4 Download', '2/4 Cover', '3/4 Separate',
       'Estimated total processing time for this track: 100 seconds', 'Estimated time remaining: 50 seconds']).overall;
     expect(halfway).toBeGreaterThan(0.3);
     expect(halfway).toBeLessThan(0.6);
-    expect(progressOf(['5/5 Chords']).overall).toBeGreaterThan(0.9);
+    expect(progressOf(['4/4 Chords']).overall).toBeGreaterThan(0.9);
+    expect(stepOf(['3/5 Separate'])).toBe(0); // an older CLI's lines aren't misread
   });
 
   it('says the time left in words', () => {

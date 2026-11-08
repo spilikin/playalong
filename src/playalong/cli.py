@@ -28,7 +28,9 @@ def _summary(track_dir: Path) -> None:
     song = read_song(track_dir) or {}
     print(f"\nDone: {track_dir}")
     print(f"  song file    {song_path(track_dir).name}  (open this folder in the player)")
-    print(f"  mixes        {len(song.get('mixes', []))} in mixes/")
+    from playalong.recipes import read_recipes
+
+    print(f"  mixes        {', '.join(r['name'] for r in read_recipes(track_dir))} (played live in the app)")
     print(f"  stems        {len(song.get('stems', {}))} in stems/")
     if song.get("cover"):
         print(f"  cover        {song['cover']['album'] or 'video thumbnail'}")
@@ -81,6 +83,66 @@ def _mix(args: argparse.Namespace, track_dir: Path) -> None:
         print(f"  {stems_dir}")
         if args.band:
             _band(track_dir, stems_dir, args.transpose)
+
+
+RENDERED = (".mp3", ".wav", ".flac")
+
+
+def _refresh(track_dir: Path) -> None:
+    """A song from before live mixes: rendered mix files and their timing index go, stems, chords, cover
+    and GarageBand material stay, and the song gets its default mixes and a version 2 song file."""
+    import json
+
+    from playalong.recipes import ensure_recipes
+
+    mixes = track_dir / "mixes"
+    if mixes.is_dir():
+        for p in mixes.iterdir():
+            if p.is_file() and (p.suffix in RENDERED or p.name == "mixes.json"):
+                p.unlink()
+    ensure_recipes(track_dir)
+    info_path = track_dir / "info.json"
+    info = json.loads(info_path.read_text()) if info_path.exists() else {}
+    if info.get("bpm") and "beat_offset" not in info:
+        # Older songs only found the count-in beat when rendering a mix with a count-in.
+        try:
+            from playalong.intro import song_start
+            from playalong.mix import load_stems
+            from playalong.tempo import song_tempo
+
+            stems, rate = load_stems(track_dir / "stems")
+            song_tempo(track_dir, stems, rate, song_start(track_dir, stems, rate))
+        except (OSError, ValueError, RuntimeError) as e:
+            print(f"No count-in beat: {e}")
+    _update_song(track_dir)
+
+
+def _retime(track_dir: Path, start: float | None, bpm: float | None) -> None:
+    import json
+    import time
+
+    info_path = track_dir / "info.json"
+    info = json.loads(info_path.read_text()) if info_path.exists() else {}
+    if start is not None:
+        info.update(song_start=round(start, 2), song_start_source="user")
+        info_path.write_text(json.dumps(info, indent=2, ensure_ascii=False))
+    # The stored start is used, so the count-in beat is anchored on it (see tempo.song_tempo).
+    chords = _detect_chords(track_dir, None, bpm)
+    info = json.loads(info_path.read_text()) if info_path.exists() else {}
+    info["timing_changed"] = time.time()
+    info_path.write_text(json.dumps(info, indent=2, ensure_ascii=False))
+    _update_song(track_dir, chords)
+
+
+def _export(track_dir: Path, mix_id: str) -> None:
+    from playalong import mix
+    from playalong.recipes import read_recipes
+
+    recipe = next((r for r in read_recipes(track_dir) if r["id"] == mix_id), None)
+    if recipe is None:
+        raise SystemExit(f"No mix {mix_id!r} in {track_dir.name}")
+    name = recipe["name"].replace("/", "-").replace(":", "-")
+    print(f"  {mix.render_recipe(track_dir, recipe, track_dir / 'exports' / f'{track_dir.name} - {name}.mp3')}")
 
 
 def _band(track_dir: Path, stems_dir: Path, transpose: int) -> None:
@@ -154,11 +216,29 @@ def build_parser() -> argparse.ArgumentParser:
                         help="where tracks are stored (default: ./library)")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    run = sub.add_parser("run", help="everything in one go: download/import, cover, separate, mixes, chords, song file")
+    run = sub.add_parser("run", help="a new song in one go: download/import, cover, separate, chords, song file "
+                                     "and its default mixes")
     run.add_argument("source", help="YouTube URL, audio file, or existing track directory")
     run.add_argument("--device", help="torch device: cuda, mps or cpu (default: best available)")
+    run.add_argument("--bpm", type=float, help="the song's tempo, if detection gets it wrong (saved for the track)")
+    run.add_argument("--garageband", action="store_true", help="also write the stems for a GarageBand project")
+    run.add_argument("--band", action="store_true", help="with --garageband, also build the GarageBand project")
+    run.add_argument("-k", "--transpose", type=int, default=0, metavar="SEMITONES",
+                     help="the key of the GarageBand stems, in semitones")
     _add_login_option(run)
-    _add_mix_options(run, garageband=True)
+
+    ref = sub.add_parser("refresh", help="bring a song made by an older version up to date: rendered mixes go "
+                                         "(mixes are played live now), default mixes and the song file are added")
+    ref.add_argument("track", type=Path, help="track directory")
+
+    ret = sub.add_parser("retime", help="set where the song starts and/or its tempo, then find chords and bars again")
+    ret.add_argument("track", type=Path, help="track directory")
+    ret.add_argument("--start", type=float, metavar="SECONDS", help="where the song starts")
+    ret.add_argument("--bpm", type=float, help="the song's tempo")
+
+    exp = sub.add_parser("export", help="render one of the song's mixes to an MP3 in exports/")
+    exp.add_argument("track", type=Path, help="track directory")
+    exp.add_argument("mix", help="the mix's id in mixes.json")
 
     dl = sub.add_parser("download", help="download or import audio only")
     dl.add_argument("source", help="YouTube URL or audio file")
@@ -250,6 +330,18 @@ def main(argv: list[str] | None = None) -> None:
         _update_song(args.track)
         return
 
+    if args.command == "refresh":
+        _refresh(args.track)
+        return
+
+    if args.command == "retime":
+        _retime(args.track, args.start, args.bpm)
+        return
+
+    if args.command == "export":
+        _export(args.track, args.mix)
+        return
+
     if args.command == "garageband":
         from playalong import garageband
 
@@ -269,17 +361,27 @@ def main(argv: list[str] | None = None) -> None:
         _update_song(args.track)
         return
 
-    # run: everything from a link (or file) to a song the player can open; finished steps are skipped.
-    print("1/5 Download")
+    # run: everything from a link (or file) to a song the player can open; finished steps are skipped. Mixes
+    # are recipes the app plays live, so none are rendered.
+    from playalong.recipes import ensure_recipes
+
+    print("1/4 Download")
     track_dir = _ingest(args.source, args.library, args.browser)
-    print("2/5 Cover")
+    print("2/4 Cover")
     fetch_cover(track_dir)
-    print("3/5 Separate")
+    print("3/4 Separate")
     separate(track_dir, args.device)
-    print("4/5 Mix")
-    _mix(args, track_dir)
-    print("5/5 Chords")
-    chords = _detect_chords(track_dir, 0.0 if args.no_trim else args.start, args.bpm)
+    print("4/4 Chords")
+    # Chord detection also finds the tempo and the beat the count-in leads into.
+    chords = _detect_chords(track_dir, None, args.bpm)
+    ensure_recipes(track_dir)
+    if args.garageband:
+        from playalong.garageband import export_stems
+
+        stems_dir = export_stems(track_dir, None, args.bpm, args.transpose)
+        print(f"  {stems_dir}")
+        if args.band:
+            _band(track_dir, stems_dir, args.transpose)
     _update_song(track_dir, chords)
     _summary(track_dir)
 

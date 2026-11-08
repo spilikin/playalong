@@ -144,3 +144,17 @@ def test_stretched_and_transposed_audio_stays_on_its_beat(tmp_path, tempo, trans
     # A phase vocoder smears each attack a little early; what must not happen is drift through the song.
     assert np.abs(error).max() < 0.025
     assert abs(error[-5:].mean() - error[:5].mean()) < 0.005
+
+
+def test_limit_holds_the_ceiling_and_leaves_quiet_audio_alone():
+    from playalong.mix import PEAK_CEILING, limit
+
+    rate = 44100
+    t = np.arange(rate) / rate
+    quiet = np.stack([0.3 * np.sin(2 * np.pi * 220 * t)] * 2, axis=1).astype(np.float32)
+    assert np.allclose(limit(quiet, rate), quiet, atol=1e-6)
+    loud = quiet.copy()
+    loud[rate // 2 : rate // 2 + 2000] *= 6.0
+    out = limit(loud, rate)
+    assert np.abs(out).max() <= PEAK_CEILING + 1e-6
+    assert np.allclose(out[:1000], loud[:1000], atol=1e-6)

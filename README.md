@@ -28,8 +28,8 @@ The model weights (~700 MB) download to `~/.cache/bs-roformer-infer` on first us
 ## Usage
 
 ```sh
-# everything in one go: download, album cover, separate, the four main mixes, GarageBand stems, chords and
-# the song file (--no-garageband skips the stems)
+# a new song in one go: download, album cover, separate, chords and the song file, plus its default mixes
+# (Original, Guide, No guitar) as recipes in mixes.json that the app plays live; --garageband adds the stems
 uv run playalong run "https://www.youtube.com/watch?v=..."
 
 # age-restricted videos need your YouTube login: the default browser's is used when YouTube asks
@@ -38,7 +38,15 @@ uv run playalong run "https://www.youtube.com/watch?v=..." --cookies-from-browse
 
 # local files and already-processed tracks work too
 uv run playalong run ~/Music/song.flac
-uv run playalong run library/some-song --all --tempo 0.8
+
+# a mix from mixes.json as an MP3 in exports/, sounding as the app plays it
+uv run playalong export library/some-song guide
+
+# where the song starts and its tempo, if detection got them wrong; chords and bars are found again
+uv run playalong retime library/some-song --start 12.4 --bpm 92
+
+# a song made before mixes were live: rendered mixes go, default mixes and a new song file come
+uv run playalong refresh library/some-song
 
 # individual steps
 uv run playalong download "https://www.youtube.com/watch?v=..."
@@ -46,7 +54,7 @@ uv run playalong separate library/some-song
 uv run playalong mix library/some-song -p backing -p guide -f wav
 uv run playalong cover library/some-song -q "Artist Song"   # if the cover found is the wrong one
 
-# every mix starts with a drummer's 1-bar count-in at the song's tempo; 2 bars counts
+# rendered mix files, for use outside the app; every mix starts with a drummer's 1-bar count-in at the song's tempo; 2 bars counts
 # "ONE . TWO . one two three four"
 uv run playalong mix library/some-song -p backing --count-in 2 --tempo 0.8
 uv run playalong mix library/some-song --bpm 92          # if the detected tempo is off
@@ -115,19 +123,23 @@ Every step writes `library/<song>/<song>.playalong`, a JSON file a player opens 
 
 | field | contents |
 |---|---|
-| `format`, `version` | `"playalong-song"`, `1` |
+| `format`, `version` | `"playalong-song"`, `2` |
 | `title`, `artist`, `source` | metadata and the YouTube link |
 | `audio` | `source.wav`, sample rate, duration |
 | `song_start` | where the song proper starts (after the video intro) and how that was found |
-| `tempo` | BPM, confidence, `detected` or `user`, beats per bar |
+| `tempo` | BPM, confidence, `detected` or `user`, beats per bar, and `beat`: the one the count-in leads into |
 | `key`, `beats`, `bars` | the key, every beat and every bar start from the song start on |
 | `chords` | start, end, name, root and `major`/`minor` (`N` = no chord) |
 | `chord_shapes` | per chord: `frets` and `fingers` low E to high e (`-1` muted, `0` open), `barre` fret and string positions |
 | `cover` | `cover.jpg`, where it came from (`itunes` or the `youtube` thumbnail) and the album |
-| `stems`, `mixes`, `garageband`, `garagebands`, `chord_sheet` | where the audio and the chord sheet are (`garagebands`: the stems for every key) |
-| `transpositions` | per transposed mix (`"-2"`): the key and every chord name moved; their shapes are in `chord_shapes` |
+| `stems`, `garageband`, `garagebands`, `chord_sheet` | where the audio and the chord sheet are (`garagebands`: the stems for every key, their `.band` `project` and whether it's `outdated` after a `retime`) |
+| `transpositions` | for every key from `"-12"` to `"+12"`: the key and every chord name moved; their shapes are in `chord_shapes` |
 
 Steps that don't detect chords keep the ones already in the file.
+
+The song's mixes are recipes in `mixes.json` next to it (`"playalong-mixes"`, version 1): per mix an `id`,
+a `name`, `levels` in dB per instrument, `mute` and `solo` lists, `transpose` in semitones, `tempo` (1.0 =
+as recorded) and `count_in` bars (0–2). The app edits them; `export` renders one.
 
 ## GarageBand
 
@@ -232,11 +244,10 @@ On first start it offers to download the audio tools (the [portable runtime](#po
 separation model, about 490 MB, 1.5 GB unpacked, into `~/Library/Application Support/dev.playalong`;
 downloads in progress and caches go to `~/Library/Caches/dev.playalong`).
 After that it opens on the **Library**, the songs in `~/Music/Playalong`: paste a YouTube link (or drop
-or choose an audio file) and **Make song**: it downloads the song, splits it into instruments, finds the
-chords and makes the original mix, then opens it. Other mixes are made on request in the player:
-**Edit**, next to Play, shows the song's mixes one version (key and tempo) at a time, starting at the mix
-you're playing. Each mix type is a row, marked made or ticked to make, including your own instrument
-levels and the GarageBand stems. The ticks, levels and count-in are remembered for the next song. Songs
+or choose an audio file) and **Make song**: it downloads the song, splits it into instruments and finds
+the chords, then opens it. Mixes play live from the instruments, so nothing is rendered: every song
+starts with Original, Guide and No guitar, and any change is heard at once while the song plays. A song
+made before mixes were live is brought up to date the first time it opens (its rendered mixes go). Songs
 made elsewhere open with **Open folder…** or by dropping a folder on the window.
 
 ### Updates
@@ -276,12 +287,22 @@ so keep a backup of both.
 ### Using it
 
 - The toolbar sits in the window's title bar: Restart and Play, the album cover with title, key,
-  tempo and position, a light/dark toggle (the system's appearance until you use it), and ‹ Library.
-- The sidebar lists the four main mixes with keys 1–4 (Original, Guide, No guitar, Vocals only), then
-  any others. Switching mixes keeps your place in the song; a transposed mix shows the key, chords and
+  tempo and position, a light/dark toggle (the system's appearance until you use it), **Song…** and
+  ‹ Library.
+- The sidebar lists the song's mixes with what each one changes ("guitar off · −2 · 90%"); keys 1–9
+  switch. Switching keeps your place in the song; a mix in another key shows the key, chords and
   shapes moved with it.
+- **Edit** at the top of the list turns it into an editor (**Done** goes back): rename a mix in place,
+  drag to reorder, ⋯ for Duplicate, Move up/down, Export MP3… and Delete, and **+ New mix**. The main
+  area shows the selected mix's mixer: key, tempo and count-in, and per instrument a level, Mute and
+  Solo, plus presets to start from. The song keeps playing and every change is heard and kept at once.
+- **Song…** holds what belongs to the song: where it starts (typed, or set to the playhead), its BPM
+  (typed or tapped), finding the chords again, GarageBand projects per key, and deleting the song.
+  A new start or tempo finds chords and bars again in the background, then the song plays on.
+- **Export MP3…** writes the mix as it's set to `exports/` in the song folder and shows it in Finder.
 - The chord strip stays put; only the bars scroll. Click a bar to jump there.
-- Keys: Space play/pause · ← → 5 s · Home: back to the start (count-in included) · 1–4 mixes.
+- Keys: Space play/pause · ← → 5 s · Home: back to the start (count-in included) · 1–9 mixes.
+- The count-in plays when a mix starts from the top.
 
 The icon is the Fmaj7 shape on a carmine tile (the Latvian flag's red), with a dark variant for the
 Mac's dark icon style. `app/scripts/make_icon.py` draws it and `app/scripts/icons.sh` renders the

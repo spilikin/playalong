@@ -7,7 +7,7 @@ use serde_json::Value;
 
 pub const FORMAT: &str = "playalong-song";
 /// The newest song file version this app understands.
-pub const VERSION: u64 = 1;
+pub const VERSION: u64 = 2;
 const SUFFIX: &str = "playalong";
 
 #[derive(Debug, Serialize)]
@@ -107,8 +107,10 @@ mod tests {
     fn rejects_other_files_and_newer_versions() {
         let (_root, dir) = song_dir("a", r#"{"title": "x"}"#);
         assert!(open(&dir).unwrap_err().contains("not a playalong song file"));
-        let (_root, dir) = song_dir("b", r#"{"format": "playalong-song", "version": 2}"#);
+        let (_root, dir) = song_dir("b", r#"{"format": "playalong-song", "version": 3}"#);
         assert!(open(&dir).unwrap_err().contains("Update the app"));
+        let (_root, dir) = song_dir("v2", r#"{"format": "playalong-song", "version": 2, "title": "Live"}"#);
+        assert_eq!(open(&dir).unwrap().song["title"], "Live");
         let (_root, dir) = song_dir("c", "not json");
         assert!(open(&dir).unwrap_err().contains("not valid JSON"));
         let plain = dir.join("notes.txt");

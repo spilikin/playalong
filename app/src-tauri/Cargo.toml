@@ -22,6 +22,11 @@ sha2 = "0.11"
 tar = "0.4"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+cpal = "0.16"
+hound = "3"
+rtrb = "0.3"
+rubberband-sys = "0.1.4"
+trash = "5"
 
 [dev-dependencies]
 tempfile = "3"

@@ -5,7 +5,6 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { OpenedSong } from './song';
 import type { Check, Installed, LibrarySong, Progress } from './maker';
-import type { MixChoice } from './mixChoice';
 
 export interface Job {
   source: string;
@@ -13,17 +12,6 @@ export interface Job {
   running: boolean;
   error: string;
   /** The finished song, until it's opened. */
-  made: OpenedSong | null;
-}
-
-/** Mixes being made for a song, in the background while it plays. */
-export interface MixJob {
-  folder: string;
-  count: number;
-  lines: string[];
-  running: boolean;
-  error: string;
-  /** The song with its new mixes, until the player has taken it. */
   made: OpenedSong | null;
 }
 
@@ -39,7 +27,6 @@ export const maker = $state({
   library: '',
   songs: [] as LibrarySong[],
   job: null as Job | null,
-  mixJob: null as MixJob | null,
   /** An audio file dropped on the Library, waiting in the link field. */
   draft: '',
   error: '',
@@ -62,12 +49,6 @@ async function listenOnce() {
     job.lines.push(e.payload.line);
     if (job.lines.length > KEEP_LINES) job.lines.splice(0, job.lines.length - KEEP_LINES);
   });
-  await listen<{ line: string }>('make-mixes-line', (e) => {
-    const job = maker.mixJob;
-    if (!job) return;
-    job.lines.push(e.payload.line);
-    if (job.lines.length > KEEP_LINES) job.lines.splice(0, job.lines.length - KEEP_LINES);
-  });
 }
 
 export async function refreshLibrary() {
@@ -75,7 +56,8 @@ export async function refreshLibrary() {
   maker.songs = (await invoke<LibrarySong[] | null>('list_library', { library: maker.library }).catch(() => null)) ?? [];
 }
 
-/** What's installed, the library, and (in the background) whether the tools have an update. */
+/** What's installed and the library; resolves once those are known. Whether the tools have an update is
+ * found in the background. */
 export async function startMaker() {
   await listenOnce().catch(() => {});
   try {
@@ -87,8 +69,11 @@ export async function startMaker() {
     maker.error = String(e);
   }
   maker.ready = true;
-  // Offline is fine: the app plays songs without it, and setting up says what went wrong.
-  maker.check = await invoke<Check>('runtime_check').catch(() => null);
+  // In the background, so opening a song never waits on the network; offline is fine, the app plays songs
+  // without it, and setting up says what went wrong.
+  void invoke<Check>('runtime_check')
+    .catch(() => null)
+    .then((check) => (maker.check = check));
 }
 
 export async function installTools() {
@@ -125,23 +110,3 @@ export async function stopSong() {
 export function clearJob() {
   maker.job = null;
 }
-
-export async function makeMixes(folder: string, choice: MixChoice, count: number) {
-  maker.mixJob = { folder, count, lines: [], running: true, error: '', made: null };
-  const job = maker.mixJob;
-  try {
-    job.made = await invoke<OpenedSong>('make_mixes', { folder, choice });
-  } catch (e) {
-    job.error = String(e);
-  } finally {
-    job.running = false;
-    await refreshLibrary();
-  }
-}
-
-export function clearMixJob() {
-  maker.mixJob = null;
-}
-
-/** Mix files written so far: the CLI prints each one's path as it's done. */
-export const mixesWritten = (lines: string[]) => lines.filter((l) => /^ {2}\//.test(l)).length;

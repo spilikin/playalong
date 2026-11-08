@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { clearMocks, mockIPC, mockWindows } from '@tauri-apps/api/mocks';
+import { emit } from '@tauri-apps/api/event';
 import { opened } from '$lib/fixture';
 import { maker } from '$lib/maker.svelte';
+import { DEFAULT_MIXES, type Recipe } from '$lib/mixes';
+import { playback } from '$lib/playback.svelte';
 import Page from './+page.svelte';
 
 let calls: { cmd: string; args: unknown }[];
@@ -14,7 +17,8 @@ beforeEach(() => {
   calls = [];
   openResult = opened;
   ipc = {};
-  Object.assign(maker, { ready: false, installed: null, check: null, songs: [], job: null, mixJob: null, error: '', draft: '' });
+  Object.assign(maker, { ready: false, installed: null, check: null, songs: [], job: null, error: '', draft: '' });
+  Object.assign(playback, { folder: '', mixes: [], current: '', timeline: null, mixSeconds: 0, duration: 0, playing: false, saveError: '' });
   localStorage.clear();
   mockWindows('main');
   mockIPC((cmd, args) => {
@@ -25,13 +29,31 @@ beforeEach(() => {
       if (typeof openResult === 'string') throw openResult;
       return openResult;
     }
+    if (cmd === 'playback_open') return { duration: 30, timeline: TIMELINE, mixes: DEFAULT_MIXES, current: 'original' };
+    if (cmd === 'playback_set_mix') {
+      const recipe = (args as { recipe: { tempo: number } }).recipe;
+      return { ...TIMELINE, tempo: recipe.tempo };
+    }
     return null;
-  });
+  }, { shouldMockEvents: true });
   // The IPC mock leaves out the asset-URL helper the real app provides.
   (window as unknown as { __TAURI_INTERNALS__: Record<string, unknown> }).__TAURI_INTERNALS__.convertFileSrc = (
     path: string,
   ) => `asset://localhost/${encodeURIComponent(path)}`;
 });
+
+// The fixture song's timing as the engine gives it for a mix at full tempo with a one-bar count-in.
+const TIMELINE = {
+  tempo: 1,
+  source_offset: 20,
+  count_in: {
+    bars: 1,
+    clicks: [0.25, 0.75, 1.25, 1.75].map((time, i) => ({ time, accent: i === 0, count: i + 1 })),
+    downbeat: 2.25,
+  },
+};
+
+const heard = (mixSeconds: number, playing = true) => emit('playback-position', { mix_seconds: mixSeconds, playing });
 
 // Listener setup and teardown are asynchronous; let them finish before the mocks go.
 const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
@@ -44,32 +66,96 @@ afterEach(async () => {
 });
 
 describe('player', () => {
-  it('opens a song folder and shows its mixes with the guide mix chosen', async () => {
+  async function openSong() {
     render(Page);
     await fireEvent.click(await screen.findByRole('button', { name: 'Open song folder…' }));
-    expect(await screen.findByRole('heading', { name: 'Kad izdzisīs' })).toBeTruthy();
+    return screen.findByRole('heading', { name: 'Kad izdzisīs' });
+  }
+
+  it('opens a song folder and plays its mixes live, the first one chosen', async () => {
+    await openSong();
     expect(calls.find((c) => c.cmd === 'open_song')?.args).toEqual({ path: '/lib/kad-izdzisis' });
-    expect(screen.getByRole('button', { name: 'Guide' }).getAttribute('aria-pressed')).toBe('true');
-    expect(screen.getByRole('button', { name: 'No guitar' }).getAttribute('aria-pressed')).toBe('false');
+    expect(calls.find((c) => c.cmd === 'playback_open')?.args).toEqual({ folder: '/lib/kad-izdzisis', mix: null });
+    expect(screen.getByRole('button', { name: /^Original/ }).getAttribute('aria-pressed')).toBe('true');
     expect(screen.getByText('Bb minor')).toBeTruthy();
     expect(screen.getAllByRole('button', { name: /^Bar / })).toHaveLength(2);
   });
 
-  it('lists the four main mixes in order, the rest under More, and switches with keys 1–4', async () => {
+  it('plays through the engine and follows its position', async () => {
+    await openSong();
+    await fireEvent.click(screen.getByRole('button', { name: 'Play' }));
+    expect(calls.some((c) => c.cmd === 'playback_play')).toBe(true);
+    await heard(4.5);
+    await waitFor(() => expect(screen.getByRole('figure', { name: 'Now' }).textContent).toContain('A♭'));
+    await heard(1.3);
+    await waitFor(() => expect(document.querySelector('.count .number')?.textContent).toBe('3'));
+  });
+
+  it('switches mix without reopening, keeping the place, and with keys 1–3', async () => {
+    await openSong();
+    await fireEvent.click(screen.getByRole('button', { name: /^No guitar/ }));
+    expect(calls.find((c) => c.cmd === 'playback_set_mix')?.args).toEqual({ recipe: DEFAULT_MIXES[2] });
+    expect(calls.filter((c) => c.cmd === 'playback_open')).toHaveLength(1);
+    expect(screen.getByRole('button', { name: /^No guitar/ }).getAttribute('aria-pressed')).toBe('true');
+    await fireEvent.keyDown(window, { code: 'Digit2', key: '2' });
+    expect(screen.getByRole('button', { name: /^Guide/ }).getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('shows the chords moved when the mix is in another key', async () => {
+    openResult = {
+      ...opened,
+      song: { ...opened.song, transpositions: { '-2': { key: 'G# minor', chords: { Bbm: 'G#m', Ab: 'F#' } } } },
+    };
+    ipc.playback_open = () => ({
+      duration: 30,
+      timeline: TIMELINE,
+      mixes: [{ ...DEFAULT_MIXES[0], name: 'Lower', transpose: -2 }],
+      current: 'original',
+    });
+    await openSong();
+    expect(screen.getByText('G# minor')).toBeTruthy();
+  });
+
+  it('brings a song from before live mixes up to date first', async () => {
+    openResult = { ...opened, song: { ...opened.song, version: 1 } };
+    maker.installed = { version: '2026.11.08', series: 1, commit: 'abc', model: 'sw' };
+    ipc.runtime_status = () => ({ installed: maker.installed, busy: false });
+    ipc.default_library = () => '/m/Playalong';
+    ipc.list_library = () => [];
+    ipc.song_refresh = () => opened;
+    render(Page);
+    await fireEvent.click(await screen.findByRole('button', { name: 'Open folder…' }));
+    await screen.findByRole('heading', { name: 'Kad izdzisīs' });
+    const order = calls.map((c) => c.cmd).filter((c) => c === 'song_refresh' || c === 'playback_open');
+    expect(order).toEqual(['song_refresh', 'playback_open']);
+  });
+
+  it('brings an old song given at launch up to date once it knows the audio tools are there', async () => {
+    openResult = { ...opened, song: { ...opened.song, version: 1 } };
+    let answer: (v: unknown) => void = () => {};
+    ipc.runtime_status = () => new Promise((resolve) => (answer = resolve));
+    ipc.default_library = () => '/m/Playalong';
+    ipc.list_library = () => [];
+    ipc.launch_args = () => ({ path: '/m/Playalong/kad', at: null });
+    ipc.song_refresh = () => opened;
+    render(Page);
+    await settle();
+    answer({ installed: { version: '2026.11.08', series: 1, commit: 'abc', model: 'sw' }, busy: false });
+    await screen.findByRole('heading', { name: 'Kad izdzisīs' });
+    expect(calls.some((c) => c.cmd === 'song_refresh')).toBe(true);
+  });
+
+  it('says an old song needs the audio tools to be brought up to date', async () => {
+    openResult = { ...opened, song: { ...opened.song, version: 1 } };
     render(Page);
     await fireEvent.click(await screen.findByRole('button', { name: 'Open song folder…' }));
-    await screen.findByRole('heading', { name: 'Kad izdzisīs' });
-    const tray = screen.getByRole('navigation', { name: 'Mixes' });
-    const names = [...tray.querySelectorAll('button')].map((b) => b.getAttribute('aria-label'));
-    expect(names).toEqual(['Original', 'Guide', 'No guitar', 'Vocals only', 'Backing']);
-    await fireEvent.keyDown(window, { code: 'Digit4', key: '4' });
-    expect(screen.getByRole('button', { name: 'Vocals only' }).getAttribute('aria-pressed')).toBe('true');
+    expect(await screen.findByRole('alert')).toHaveProperty('textContent', expect.stringContaining('audio tools'));
+    expect(calls.some((c) => c.cmd === 'playback_open')).toBe(false);
   });
 
   it('shows the album cover', async () => {
-    render(Page);
-    await fireEvent.click(await screen.findByRole('button', { name: 'Open song folder…' }));
-    const img = (await screen.findByRole('img', { name: 'Tā Mana Dzīve' })) as HTMLImageElement;
+    await openSong();
+    const img = screen.getByRole('img', { name: 'Tā Mana Dzīve' }) as HTMLImageElement;
     expect(decodeURIComponent(img.src)).toContain('/lib/kad-izdzisis/cover.jpg');
   });
 
@@ -115,15 +201,11 @@ describe('restart', () => {
     await fireEvent.click(await screen.findByRole('button', { name: 'Open song folder…' }));
     await screen.findByRole('heading', { name: 'Kad izdzisīs' });
     (container.querySelector('.sheet-wrap') as HTMLElement).scrollTo = scrollTo;
-    const audio = container.querySelector('audio') as HTMLAudioElement;
-    const pause = vi.fn();
-    audio.pause = pause;
-    audio.currentTime = 42;
+    await heard(42);
     await fireEvent.click(screen.getByRole('button', { name: 'Restart' }));
-    expect(audio.currentTime).toBe(0);
-    expect(pause).toHaveBeenCalled();
+    expect(calls.some((c) => c.cmd === 'playback_pause')).toBe(true);
+    await waitFor(() => expect(calls.find((c) => c.cmd === 'playback_seek')?.args).toEqual({ mixSeconds: 0 }));
     await waitFor(() => expect(scrollTo).toHaveBeenCalledWith({ top: 0, behavior: 'auto' }));
-    expect(scrollTo).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -204,97 +286,213 @@ describe('library', () => {
   });
 });
 
-describe('managing mixes', () => {
-  const installed = { version: '2026.11.08', series: 1, commit: 'abc', model: 'sw' };
-  const lower = { ...opened.song.mixes[0], file: 'mixes/s - guide -2.mp3', name: 'guide', transpose: -2 };
-  const withNew = { ...opened, song: { ...opened.song, mixes: [...opened.song.mixes, lower] } };
-
-  async function openPage() {
-    ipc.runtime_status = () => ({ installed, busy: false });
-    ipc.default_library = () => '/m/Playalong';
-    ipc.list_library = () => [];
+describe('editing mixes', () => {
+  async function openSong() {
     render(Page);
-    await fireEvent.click(await screen.findByRole('button', { name: 'Open folder…' }));
-    await fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
-    return within(await screen.findByRole('region', { name: 'Mixes' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Open song folder…' }));
+    await screen.findByRole('heading', { name: 'Kad izdzisīs' });
   }
 
-  it('shows what the version has, makes what is ticked and missing, and remembers the ticks', async () => {
-    localStorage.setItem('playalong.mixPicks', JSON.stringify({ presets: ['guide', 'drums-only'] }));
-    ipc.make_mixes = () => withNew;
-    const page = await openPage();
-    expect(page.queryByRole('checkbox', { name: 'Guide' })).toBeNull();
-    expect((page.getByRole('checkbox', { name: 'Drums only' }) as HTMLInputElement).checked).toBe(true);
-    expect(page.getByRole('button', { name: 'Make 1' })).toBeTruthy();
+  async function edit() {
+    await openSong();
+    await fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    return within(await screen.findByRole('region', { name: 'Mixer' }));
+  }
 
-    await fireEvent.click(page.getByRole('button', { name: 'Down a semitone' }));
-    await fireEvent.click(page.getByRole('button', { name: 'Down a semitone' }));
-    expect(page.getByText('−2 · G♯ minor')).toBeTruthy();
-    expect((page.getByRole('checkbox', { name: 'Guide' }) as HTMLInputElement).checked).toBe(true);
-    await fireEvent.click(page.getByRole('radio', { name: 'Off' }));
-    await fireEvent.click(page.getByRole('button', { name: 'Make 2' }));
+  const lastMix = () =>
+    (calls.filter((c) => c.cmd === 'playback_set_mix').at(-1)?.args as { recipe: Recipe } | undefined)?.recipe;
 
-    expect(calls.find((c) => c.cmd === 'make_mixes')?.args).toEqual({
-      folder: '/lib/kad-izdzisis',
-      choice: { presets: ['guide', 'drums-only'], custom: null, transpose: -2, tempo: 1, count_in: 0, garageband: false },
-    });
-    expect(await page.findByRole('button', { name: /G♯m · 100% · 1 mix/ })).toBeTruthy();
-    expect(page.queryByRole('checkbox', { name: 'Guide' })).toBeNull();
-    expect(JSON.parse(localStorage.getItem('playalong.mixPicks')!).count_in).toBe(0);
+  it('Edit shows the mixer of the mix playing in place of the chords, Done goes back', async () => {
+    const mixer = await edit();
+    expect(screen.getByRole('button', { name: 'Done', pressed: true })).toBeTruthy();
+    expect(mixer.getByRole('heading', { name: 'Original' })).toBeTruthy();
+    expect(screen.queryByRole('region', { name: 'Chords' })).toBeNull();
+    await fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    expect(screen.getByRole('region', { name: 'Chords' })).toBeTruthy();
   });
 
-  it('makes only the GarageBand project', async () => {
-    ipc.make_mixes = () => withNew;
-    const page = await openPage();
-    expect((page.getByRole('button', { name: 'Make' }) as HTMLButtonElement).disabled).toBe(true);
-    await fireEvent.click(page.getByRole('checkbox', { name: 'GarageBand project' }));
-    await fireEvent.click(page.getByRole('button', { name: 'Make 1' }));
-    const choice = (calls.find((c) => c.cmd === 'make_mixes')?.args as { choice: unknown }).choice;
-    expect(choice).toMatchObject({ presets: [], custom: null, garageband: true });
+  it('renames a mix and keeps it, without rendering anything', async () => {
+    await edit();
+    await fireEvent.input(screen.getByRole('textbox', { name: 'Name of Guide' }), { target: { value: 'Band' } });
+    await waitFor(() =>
+      expect((calls.find((c) => c.cmd === 'mixes_save')?.args as { mixes: Recipe[] }).mixes[1].name).toBe('Band'),
+    );
+    expect(calls.some((c) => c.cmd.startsWith('song_'))).toBe(false);
   });
 
-  it('makes your own mix from instrument levels', async () => {
-    ipc.make_mixes = () => withNew;
-    const page = await openPage();
-    await fireEvent.click(page.getByRole('checkbox', { name: 'My mix' }));
-    await fireEvent.click(page.getByRole('button', { name: 'Levels…' }));
-    await fireEvent.input(page.getByRole('slider', { name: 'Guitar' }), { target: { value: '-12' } });
-    await fireEvent.input(page.getByRole('slider', { name: 'Piano' }), { target: { value: '-25' } });
-    expect(page.getByText(/guitar −12 dB, piano off/)).toBeTruthy();
-    await fireEvent.click(page.getByRole('button', { name: 'Make 1' }));
-    const choice = (calls.find((c) => c.cmd === 'make_mixes')?.args as { choice: { custom: unknown } }).choice;
-    expect(choice.custom).toEqual({ vocals: 0, guitar: -12, bass: 0, drums: 0, piano: null, other: 0 });
+  it('a level, mute, solo, key or tempo change is heard at once', async () => {
+    const mixer = await edit();
+    await fireEvent.input(mixer.getByRole('slider', { name: 'Guitar' }), { target: { value: '-12' } });
+    expect(lastMix()?.levels.guitar).toBe(-12);
+    await fireEvent.click(mixer.getByRole('button', { name: 'Mute Vocals' }));
+    expect(lastMix()?.mute).toEqual(['vocals']);
+    await fireEvent.click(mixer.getByRole('button', { name: 'Solo Drums' }));
+    expect(lastMix()?.solo).toEqual(['drums']);
+    await fireEvent.click(mixer.getByRole('button', { name: 'Down a semitone' }));
+    await fireEvent.click(mixer.getByRole('button', { name: 'Slower' }));
+    expect(lastMix()).toMatchObject({ transpose: -1, tempo: 0.95 });
+    await fireEvent.click(mixer.getByRole('radio', { name: '2 bars' }));
+    expect(lastMix()?.count_in).toBe(2);
+    await fireEvent.click(mixer.getByRole('button', { name: 'No guitar' }));
+    expect(lastMix()).toMatchObject({ mute: ['guitar'], solo: [], transpose: -1 });
   });
 
-  it('plays a made mix from its row and goes back to the chords', async () => {
-    const page = await openPage();
-    const backing = within(page.getByText('Backing').closest('.row') as HTMLElement);
-    await fireEvent.click(backing.getByRole('button', { name: 'Play' }));
-    expect(backing.getByText(/playing/)).toBeTruthy();
-    await fireEvent.click(page.getByRole('button', { name: '‹ Chords' }));
-    expect(screen.queryByRole('region', { name: 'Mixes' })).toBeNull();
-    expect(screen.getByRole('button', { name: 'Edit', pressed: false })).toBeTruthy();
+  it('makes, duplicates, moves and deletes mixes', async () => {
+    await edit();
+    await fireEvent.click(screen.getByRole('button', { name: '+ New mix' }));
+    expect(screen.getByRole('textbox', { name: 'Name of Original copy' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Original copy' })).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: 'More for Guide' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Move up' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'More for No guitar' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Delete' }));
+    const names = screen.getAllByRole('textbox', { name: /^Name of / }).map((i) => (i as HTMLInputElement).value);
+    expect(names).toEqual(['Guide', 'Original', 'Original copy']);
+    await waitFor(() =>
+      expect((calls.filter((c) => c.cmd === 'mixes_save').at(-1)?.args as { mixes: Recipe[] }).mixes).toHaveLength(3),
+    );
   });
 
-  it('opens a GarageBand project the version has', async () => {
-    const project = 'mixes/s - GarageBand 120 BPM.band';
+  it('exports a mix as an MP3', async () => {
+    ipc.song_export = () => '/lib/kad-izdzisis/exports/kad - Guide.mp3';
+    await edit();
+    await fireEvent.click(screen.getByRole('button', { name: 'More for Guide' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Export MP3…' }));
+    expect(calls.find((c) => c.cmd === 'song_export')?.args).toEqual({ folder: '/lib/kad-izdzisis', mix: 'guide' });
+    expect(await screen.findByText(/shown in Finder/)).toBeTruthy();
+  });
+
+  it('without the song’s tempo the count-in is off and says why', async () => {
+    openResult = { ...opened, song: { ...opened.song, tempo: null } };
+    const mixer = await edit();
+    expect((mixer.getByRole('radio', { name: '1 bar' }) as HTMLInputElement).disabled).toBe(true);
+    expect(mixer.getByText(/needs the song’s tempo/)).toBeTruthy();
+  });
+});
+
+describe('song editing', () => {
+  async function songPanel() {
+    render(Page);
+    await fireEvent.click(await screen.findByRole('button', { name: 'Open song folder…' }));
+    await screen.findByRole('heading', { name: 'Kad izdzisīs' });
+    await fireEvent.click(screen.getByRole('button', { name: 'Song…' }));
+    return within(await screen.findByRole('region', { name: 'Song' }));
+  }
+
+  it('sets where the song starts to the playhead, then plays on with the new timing', async () => {
+    ipc.song_retime = () => opened;
+    const panel = await songPanel();
+    await heard(4.5);
+    await fireEvent.click(panel.getByRole('button', { name: 'Set to playhead' }));
+    expect(calls.find((c) => c.cmd === 'song_retime')?.args).toEqual({ folder: '/lib/kad-izdzisis', start: 24.5, bpm: null });
+    await waitFor(() => expect(calls.filter((c) => c.cmd === 'playback_open')).toHaveLength(2));
+    await waitFor(() => expect(calls.find((c) => c.cmd === 'playback_seek')?.args).toEqual({ mixSeconds: 4.5 }));
+  });
+
+  it('taps the tempo and sets it', async () => {
+    ipc.song_retime = () => opened;
+    const now = vi.spyOn(performance, 'now');
+    const panel = await songPanel();
+    for (const t of [1000, 1500, 2000, 2500, 3000]) {
+      now.mockReturnValue(t);
+      await fireEvent.click(panel.getByRole('button', { name: 'Tap' }));
+    }
+    expect((panel.getByRole('spinbutton', { name: 'BPM' }) as HTMLInputElement).value).toBe('120');
+    await fireEvent.click(panel.getByRole('button', { name: 'Set BPM' }));
+    expect(calls.find((c) => c.cmd === 'song_retime')?.args).toEqual({ folder: '/lib/kad-izdzisis', start: null, bpm: 120 });
+    now.mockRestore();
+  });
+
+  it('finds the chords again', async () => {
+    ipc.song_retime = () => opened;
+    const panel = await songPanel();
+    await fireEvent.click(panel.getByRole('button', { name: 'Detect again' }));
+    expect(calls.find((c) => c.cmd === 'song_retime')?.args).toEqual({ folder: '/lib/kad-izdzisis', start: null, bpm: null });
+  });
+
+  it('builds a GarageBand project in a key; one left behind by a timing change offers Make again', async () => {
+    const project = 'mixes/s - GarageBand 120 BPM -1.band';
     openResult = {
       ...opened,
-      song: { ...opened.song, garagebands: [{ folder: 'mixes/s - GarageBand 120 BPM', bpm: 120, transpose: 0, project }] },
+      song: { ...opened.song, garagebands: [{ folder: 'mixes/s - GarageBand 120 BPM -1', bpm: 120, transpose: -1, project, outdated: true }] },
     };
-    const page = await openPage();
-    expect(page.queryByRole('checkbox', { name: 'GarageBand project' })).toBeNull();
-    await fireEvent.click(page.getByRole('button', { name: 'Open' }));
-    expect(calls.find((c) => c.cmd === 'open_in_garageband')?.args).toEqual({ folder: '/lib/kad-izdzisis', project });
+    ipc.song_garageband = () => opened;
+    const panel = await songPanel();
+    expect(panel.getByText(/out of date/)).toBeTruthy();
+    await fireEvent.click(panel.getByRole('button', { name: 'Make again' }));
+    expect(calls.find((c) => c.cmd === 'song_garageband')?.args).toEqual({ folder: '/lib/kad-izdzisis', transpose: -1 });
+    await fireEvent.click(panel.getByRole('button', { name: 'Down a semitone' }));
+    await fireEvent.click(panel.getByRole('button', { name: 'Make project' }));
+    expect(calls.filter((c) => c.cmd === 'song_garageband').at(-1)?.args).toEqual({ folder: '/lib/kad-izdzisis', transpose: -1 });
   });
 
-  it('says why mixes could not be made', async () => {
-    ipc.make_mixes = () => {
-      throw 'Busy: making a song';
+  it('deletes the song after asking and goes back to the Library', async () => {
+    maker.installed = { version: '2026.11.08', series: 1, commit: 'abc', model: 'sw' };
+    ipc.runtime_status = () => ({ installed: maker.installed, busy: false });
+    ipc.default_library = () => '/m/Playalong';
+    ipc.list_library = () => [];
+    ipc['plugin:dialog|message'] = () => 'Move to Trash';
+    render(Page);
+    await fireEvent.click(await screen.findByRole('button', { name: 'Open folder…' }));
+    await screen.findByRole('heading', { name: 'Kad izdzisīs' });
+    await fireEvent.click(screen.getByRole('button', { name: 'Song…' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Delete song…' }));
+    await waitFor(() =>
+      expect(calls.find((c) => c.cmd === 'delete_song')?.args).toEqual({ folder: '/lib/kad-izdzisis', library: '/m/Playalong' }),
+    );
+    expect(await screen.findByRole('heading', { name: 'Library' })).toBeTruthy();
+  });
+});
+
+describe('after the review', () => {
+  function withTools() {
+    maker.installed = { version: '2026.11.08', series: 1, commit: 'abc', model: 'sw' };
+    ipc.runtime_status = () => ({ installed: maker.installed, busy: false });
+    ipc.default_library = () => '/m/Playalong';
+    ipc.list_library = () => [];
+  }
+
+  async function openSong() {
+    render(Page);
+    await fireEvent.click(await screen.findByRole('button', { name: /^Open (song )?folder…$/ }));
+    await screen.findByRole('heading', { name: 'Kad izdzisīs' });
+  }
+
+  it('a job that finishes after leaving the song does not pull the player back to it', async () => {
+    withTools();
+    let finish: (v: unknown) => void = () => {};
+    ipc.song_retime = () => new Promise((resolve) => (finish = resolve));
+    await openSong();
+    await fireEvent.click(screen.getByRole('button', { name: 'Song…' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Detect again' }));
+    await fireEvent.click(screen.getByRole('button', { name: '‹ Library' }));
+    await screen.findByRole('heading', { name: 'Library' });
+    finish(opened);
+    await settle();
+    expect(calls.filter((c) => c.cmd === 'playback_open')).toHaveLength(1);
+    expect(screen.getByRole('heading', { name: 'Library' })).toBeTruthy();
+  });
+
+  it('says when the mixes could not be saved', async () => {
+    ipc.mixes_save = () => {
+      throw "can't save the mixes: Permission denied";
     };
-    const page = await openPage();
-    await fireEvent.click(page.getByRole('checkbox', { name: 'GarageBand project' }));
-    await fireEvent.click(page.getByRole('button', { name: 'Make 1' }));
-    expect(await screen.findByText('Busy: making a song')).toBeTruthy();
+    await openSong();
+    await fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    await fireEvent.input(screen.getByRole('textbox', { name: 'Name of Guide' }), { target: { value: 'Band' } });
+    expect(await screen.findByText(/Permission denied/)).toBeTruthy();
+  });
+
+  it('saves a just-duplicated mix before exporting it', async () => {
+    ipc.song_export = () => '/lib/kad-izdzisis/exports/kad - Guide copy.mp3';
+    await openSong();
+    await fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'More for Guide' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Duplicate' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'More for Guide copy' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Export MP3…' }));
+    await waitFor(() => expect(calls.some((c) => c.cmd === 'song_export')).toBe(true));
+    const order = calls.map((c) => c.cmd).filter((c) => c === 'mixes_save' || c === 'song_export');
+    expect(order[0]).toBe('mixes_save');
   });
 });
