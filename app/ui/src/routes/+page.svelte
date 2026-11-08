@@ -127,6 +127,8 @@
   /** The song file changed under the player (new timing, a GarageBand project): the engine takes it up and
    * plays on from the same moment. */
   async function songChanged(result: OpenedSong) {
+    // A job outlives the panel it started from: if the song was left meanwhile, the player stays where it is.
+    if (opened?.folder !== result.folder || playback.folder !== result.folder) return;
     const at = time;
     const wasPlaying = playing;
     await openPlayback(result.folder, playback.current);

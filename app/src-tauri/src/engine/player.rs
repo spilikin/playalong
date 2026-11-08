@@ -26,12 +26,64 @@ pub enum Command {
 
 /// What the callback and the thread share; only atomics, so the callback never waits.
 #[derive(Default)]
-struct Shared {
+pub struct Shared {
     playing: AtomicBool,
     /// Frames the device has taken from the buffer.
     played: AtomicU64,
     /// Frames written before this one were made stale by a jump: the callback drops them unheard.
     stale_before: AtomicU64,
+}
+
+/// Frames over which output fades in and out (about 6 ms): pausing or jumping never cuts a waveform.
+const FADE: f32 = 256.0;
+
+/// The device side: takes whole stereo frames from the queue and fades on pause and jumps.
+pub struct Output {
+    consumer: rtrb::Consumer<f32>,
+    gain: f32,
+}
+
+impl Output {
+    pub fn new(consumer: rtrb::Consumer<f32>) -> Output {
+        Output { consumer, gain: 0.0 }
+    }
+
+    fn take(&mut self, played: &mut u64) -> Option<(f32, f32)> {
+        // Both samples of a frame or neither: the producer pushes them one at a time.
+        if self.consumer.slots() < 2 {
+            return None;
+        }
+        *played += 1;
+        Some((self.consumer.pop().ok()?, self.consumer.pop().ok()?))
+    }
+
+    pub fn fill(&mut self, data: &mut [f32], channels: usize, shared: &Shared) {
+        let stale = shared.stale_before.load(Relaxed);
+        let playing = shared.playing.load(Relaxed);
+        let mut played = shared.played.load(Relaxed);
+        for frame in data.chunks_mut(channels) {
+            // A jump: the old place fades out first, then whatever is left of it goes unheard.
+            if played < stale && self.gain == 0.0 {
+                while played < stale && self.take(&mut played).is_some() {}
+            }
+            let target = if playing && played >= stale { 1.0 } else { 0.0 };
+            let sample = if self.gain == 0.0 && target == 0.0 { None } else { self.take(&mut played) };
+            frame.iter_mut().for_each(|v| *v = 0.0);
+            if let Some((l, r)) = sample {
+                self.gain = if target > self.gain { (self.gain + 1.0 / FADE).min(1.0) } else { (self.gain - 1.0 / FADE).max(0.0) };
+                frame[0] = l * self.gain;
+                if channels > 1 {
+                    frame[1] = r * self.gain;
+                }
+            }
+        }
+        shared.played.store(played, Relaxed);
+    }
+}
+
+/// Play pressed at (or just before) the end starts the song again.
+pub fn starts_over(now: f64, duration: f64) -> bool {
+    now >= duration - 0.05
 }
 
 /// Mix seconds being heard: the position after the last frame written, minus what's still queued.
@@ -80,38 +132,12 @@ impl Player {
                 let rate = config.sample_rate().0;
                 let channels = config.channels() as usize;
                 let shared = Arc::new(Shared::default());
-                let (mut producer, mut consumer) = rtrb::RingBuffer::<f32>::new(rate as usize / 10 * 2);
+                let (mut producer, consumer) = rtrb::RingBuffer::<f32>::new(rate as usize / 10 * 2);
+                let mut output = Output::new(consumer);
                 let callback_shared = shared.clone();
                 let stream = device.build_output_stream(
                     &config.into(),
-                    move |data: &mut [f32], _| {
-                        let s = &callback_shared;
-                        let stale = s.stale_before.load(Relaxed);
-                        let mut played = s.played.load(Relaxed);
-                        while played < stale && consumer.pop().is_ok() && consumer.pop().is_ok() {
-                            played += 1;
-                        }
-                        let playing = s.playing.load(Relaxed);
-                        for frame in data.chunks_mut(channels) {
-                            let (l, r) = if playing {
-                                match (consumer.pop(), consumer.pop()) {
-                                    (Ok(l), Ok(r)) => {
-                                        played += 1;
-                                        (l, r)
-                                    }
-                                    _ => (0.0, 0.0),
-                                }
-                            } else {
-                                (0.0, 0.0)
-                            };
-                            frame[0] = l;
-                            if channels > 1 {
-                                frame[1] = r;
-                            }
-                            frame.iter_mut().skip(2).for_each(|v| *v = 0.0);
-                        }
-                        s.played.store(played, Relaxed);
-                    },
+                    move |data: &mut [f32], _| output.fill(data, channels, &callback_shared),
                     |e| eprintln!("audio output: {e}"),
                     None,
                 );
@@ -133,7 +159,15 @@ impl Player {
                 loop {
                     while let Ok(command) = rx.pop() {
                         match command {
-                            Command::Play => shared.playing.store(true, Relaxed),
+                            Command::Play => {
+                                let played = shared.played.load(Relaxed).max(shared.stale_before.load(Relaxed));
+                                if starts_over(heard(position, written, played, rate), duration) {
+                                    render.seek(0.0);
+                                    shared.stale_before.store(written, Relaxed);
+                                    position = render.position();
+                                }
+                                shared.playing.store(true, Relaxed);
+                            }
                             Command::Pause => shared.playing.store(false, Relaxed),
                             Command::Seek(mix) => {
                                 render.seek(mix.clamp(0.0, duration));
@@ -195,6 +229,76 @@ impl Drop for Player {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn queue(frames: &[(f32, f32)]) -> (rtrb::Producer<f32>, Output) {
+        let (mut p, c) = rtrb::RingBuffer::<f32>::new(8192);
+        for &(l, r) in frames {
+            p.push(l).unwrap();
+            p.push(r).unwrap();
+        }
+        (p, Output::new(c))
+    }
+
+    fn steepest(x: &[f32]) -> f32 {
+        x.windows(2).map(|w| (w[1] - w[0]).abs()).fold(0.0, f32::max)
+    }
+
+    #[test]
+    fn never_takes_half_a_frame() {
+        let (mut p, mut out) = queue(&[]);
+        p.push(0.5).unwrap();
+        let shared = Shared::default();
+        shared.playing.store(true, Relaxed);
+        let mut data = [9.0f32; 4];
+        out.fill(&mut data, 2, &shared);
+        assert_eq!(data, [0.0; 4]);
+        p.push(0.25).unwrap();
+        let mut data = [0.0f32; 2];
+        for _ in 0..300 {
+            out.fill(&mut data, 2, &shared);
+        }
+        assert_eq!(shared.played.load(Relaxed), 1, "the pair came out together");
+    }
+
+    #[test]
+    fn pause_fades_out_instead_of_cutting() {
+        let (_p, mut out) = queue(&vec![(1.0, 1.0); 2000]);
+        let shared = Shared::default();
+        shared.playing.store(true, Relaxed);
+        let mut data = vec![0f32; 2 * 600];
+        out.fill(&mut data, 2, &shared);
+        shared.playing.store(false, Relaxed);
+        let mut after = vec![0f32; 2 * 600];
+        out.fill(&mut after, 2, &shared);
+        let left: Vec<f32> = data.iter().chain(after.iter()).step_by(2).copied().collect();
+        assert!(steepest(&left) <= 1.0 / 256.0 + 1e-6);
+        assert_eq!(*left.last().unwrap(), 0.0);
+        let taken = shared.played.load(Relaxed);
+        out.fill(&mut after, 2, &shared);
+        assert_eq!(shared.played.load(Relaxed), taken, "paused, nothing more is taken");
+    }
+
+    #[test]
+    fn a_jump_fades_the_old_place_out_and_the_new_one_in() {
+        let mut frames = vec![(1.0, 1.0); 1000];
+        frames.extend(vec![(-1.0, -1.0); 1000]);
+        let (_p, mut out) = queue(&frames);
+        let shared = Shared::default();
+        shared.playing.store(true, Relaxed);
+        let mut data = vec![0f32; 2 * 400];
+        out.fill(&mut data, 2, &shared);
+        shared.stale_before.store(1000, Relaxed);
+        let mut after = vec![0f32; 2 * 900];
+        out.fill(&mut after, 2, &shared);
+        let left: Vec<f32> = data.iter().chain(after.iter()).step_by(2).copied().collect();
+        assert!(steepest(&left) <= 1.0 / 256.0 + 1e-6);
+        assert!(*left.last().unwrap() < -0.99, "the new place is heard");
+    }
+
+    #[test]
+    fn play_at_the_end_starts_over() {
+        assert!(starts_over(180.0, 180.0) && !starts_over(100.0, 180.0));
+    }
 
     #[test]
     fn what_is_heard_lags_what_is_written_by_the_queue() {

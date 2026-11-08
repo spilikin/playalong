@@ -20,10 +20,13 @@ export const playback = $state({
   mixSeconds: 0,
   duration: 0,
   playing: false,
+  /** Why the mixes couldn't be kept, until the next save works. */
+  saveError: '',
 });
 
 let unlisten: (() => void) | undefined;
 let saving: ReturnType<typeof setTimeout> | undefined;
+let pending: (() => Promise<void>) | null = null;
 const SAVE_AFTER = 300;
 
 /** Follows the engine's reports for the song being opened; one listener at a time. */
@@ -39,6 +42,8 @@ export const currentMix = (): Recipe | undefined => playback.mixes.find((m) => m
 
 /** Loads the song's stems into the engine; whatever played before stops. */
 export async function openPlayback(folder: string, mix: string | null = null) {
+  // Edits still waiting to be written go first, or the song would open with the mixes from before them.
+  await flushSave();
   await follow().catch(() => {});
   const opened = await invoke<Opened>('playback_open', { folder, mix });
   Object.assign(playback, {
@@ -49,6 +54,7 @@ export async function openPlayback(folder: string, mix: string | null = null) {
     duration: opened.duration,
     mixSeconds: 0,
     playing: false,
+    saveError: '',
   });
 }
 
@@ -94,7 +100,22 @@ export function saveMixes() {
   clearTimeout(saving);
   const folder = playback.folder;
   const mixes = $state.snapshot(playback.mixes);
-  saving = setTimeout(() => void invoke('mixes_save', { folder, mixes }).catch(() => {}), SAVE_AFTER);
+  pending = async () => {
+    pending = null;
+    try {
+      await invoke('mixes_save', { folder, mixes });
+      playback.saveError = '';
+    } catch (e) {
+      playback.saveError = String(e);
+    }
+  };
+  saving = setTimeout(() => void pending?.(), SAVE_AFTER);
+}
+
+/** Writes waiting edits now: before anything reads the mixes file (opening, exporting). */
+export async function flushSave() {
+  clearTimeout(saving);
+  await pending?.();
 }
 
 /** A mix changed in place: heard at once if it's the one playing, and kept. */

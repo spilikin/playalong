@@ -6,7 +6,7 @@
   import MixIcon from './MixIcon.svelte';
   import { strings } from './i18n.svelte';
   import { describeMix, newMixFrom, type Recipe } from './mixes';
-  import { chooseMix, currentMix, playback, saveMixes, updateMix } from './playback.svelte';
+  import { chooseMix, currentMix, flushSave, playback, saveMixes, updateMix } from './playback.svelte';
 
   let { editing = $bindable(false) }: { editing?: boolean } = $props();
 
@@ -47,6 +47,7 @@
   async function exportMix(m: Recipe) {
     status = s.exporting(m.name);
     try {
+      await flushSave();
       await invoke<string>('song_export', { folder: playback.folder, mix: m.id });
       status = s.exported(m.name);
     } catch (e) {
@@ -147,6 +148,7 @@
   {/each}
   <button class="new" onclick={() => add(currentMix() ?? playback.mixes[0], playback.mixes.length)}>{s.newMix}</button>
 {/if}
+{#if playback.saveError}<p class="status error" role="alert">{playback.saveError}</p>{/if}
 {#if status}<p class="status" role="status">{status}</p>{/if}
 
 <style>

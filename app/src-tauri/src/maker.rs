@@ -485,6 +485,20 @@ mod tests {
     }
 
     #[test]
+    fn the_downloader_is_checked_once_a_day() {
+        assert!(needs_downloader_check(None));
+        assert!(!needs_downloader_check(Some(Duration::from_secs(3600))));
+        assert!(needs_downloader_check(Some(DOWNLOADER_EVERY)));
+    }
+
+    #[test]
+    fn a_login_problem_is_not_a_downloader_problem() {
+        assert!(worth_new_downloader("ERROR: [youtube] x: Requested format is not available"));
+        assert!(!worth_new_downloader("YouTube wants a signed-in account for this video"));
+        assert!(is_url("https://youtu.be/x") && !is_url("/Users/a/song.wav"));
+    }
+
+    #[test]
     fn making_a_song_waits_for_the_install() {
         let maker = Maker::default();
         let install = maker.begin("setting up the runtime").unwrap();

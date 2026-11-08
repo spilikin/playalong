@@ -18,7 +18,7 @@ beforeEach(() => {
   openResult = opened;
   ipc = {};
   Object.assign(maker, { ready: false, installed: null, check: null, songs: [], job: null, error: '', draft: '' });
-  Object.assign(playback, { folder: '', mixes: [], current: '', timeline: null, mixSeconds: 0, duration: 0, playing: false });
+  Object.assign(playback, { folder: '', mixes: [], current: '', timeline: null, mixSeconds: 0, duration: 0, playing: false, saveError: '' });
   localStorage.clear();
   mockWindows('main');
   mockIPC((cmd, args) => {
@@ -441,5 +441,58 @@ describe('song editing', () => {
       expect(calls.find((c) => c.cmd === 'delete_song')?.args).toEqual({ folder: '/lib/kad-izdzisis', library: '/m/Playalong' }),
     );
     expect(await screen.findByRole('heading', { name: 'Library' })).toBeTruthy();
+  });
+});
+
+describe('after the review', () => {
+  function withTools() {
+    maker.installed = { version: '2026.11.08', series: 1, commit: 'abc', model: 'sw' };
+    ipc.runtime_status = () => ({ installed: maker.installed, busy: false });
+    ipc.default_library = () => '/m/Playalong';
+    ipc.list_library = () => [];
+  }
+
+  async function openSong() {
+    render(Page);
+    await fireEvent.click(await screen.findByRole('button', { name: /^Open (song )?folder…$/ }));
+    await screen.findByRole('heading', { name: 'Kad izdzisīs' });
+  }
+
+  it('a job that finishes after leaving the song does not pull the player back to it', async () => {
+    withTools();
+    let finish: (v: unknown) => void = () => {};
+    ipc.song_retime = () => new Promise((resolve) => (finish = resolve));
+    await openSong();
+    await fireEvent.click(screen.getByRole('button', { name: 'Song…' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Detect again' }));
+    await fireEvent.click(screen.getByRole('button', { name: '‹ Library' }));
+    await screen.findByRole('heading', { name: 'Library' });
+    finish(opened);
+    await settle();
+    expect(calls.filter((c) => c.cmd === 'playback_open')).toHaveLength(1);
+    expect(screen.getByRole('heading', { name: 'Library' })).toBeTruthy();
+  });
+
+  it('says when the mixes could not be saved', async () => {
+    ipc.mixes_save = () => {
+      throw "can't save the mixes: Permission denied";
+    };
+    await openSong();
+    await fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    await fireEvent.input(screen.getByRole('textbox', { name: 'Name of Guide' }), { target: { value: 'Band' } });
+    expect(await screen.findByText(/Permission denied/)).toBeTruthy();
+  });
+
+  it('saves a just-duplicated mix before exporting it', async () => {
+    ipc.song_export = () => '/lib/kad-izdzisis/exports/kad - Guide copy.mp3';
+    await openSong();
+    await fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'More for Guide' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Duplicate' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'More for Guide copy' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Export MP3…' }));
+    await waitFor(() => expect(calls.some((c) => c.cmd === 'song_export')).toBe(true));
+    const order = calls.map((c) => c.cmd).filter((c) => c === 'mixes_save' || c === 'song_export');
+    expect(order[0]).toBe('mixes_save');
   });
 });
