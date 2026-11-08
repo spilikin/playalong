@@ -1,6 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { STRINGS } from './i18n.svelte';
-import { addedLabel, isYouTube, keyShort, matches, megabytes, progressText, stepOf, transposeLabel } from './maker';
+import {
+  addedLabel,
+  isYouTube,
+  keyShort,
+  matches,
+  megabytes,
+  progressOf,
+  progressText,
+  stepOf,
+  timeLeft,
+  transposeLabel,
+} from './maker';
 
 const s = STRINGS.en;
 
@@ -52,5 +63,40 @@ describe('library', () => {
     const now = new Date(2026, 10, 7, 18, 0);
     expect(addedLabel(new Date(2026, 10, 7, 9, 0).getTime() / 1000, now, 'en', s)).toBe('Today');
     expect(addedLabel(new Date(2026, 10, 2, 9, 0).getTime() / 1000, now, 'en', s)).toBe('Nov 2');
+  });
+});
+
+describe('progress while making a song', () => {
+  it('follows the download percentage', () => {
+    const p = progressOf(['1/5 Download', '[download]   0.0% of 3.52MiB', '[download]  45.5% of 3.52MiB at 2MiB/s']);
+    expect(p).toMatchObject({ step: 1, share: 0.455 });
+  });
+
+  it('follows the separation by its own time estimate, once the model is loaded', () => {
+    const lines = ['1/5 Download', '2/5 Cover', '3/5 Separate'];
+    expect(progressOf(lines)).toMatchObject({ step: 3, share: null, left: null });
+    lines.push('Estimated total processing time for this track: 200.00 seconds');
+    expect(progressOf(lines)).toMatchObject({ step: 3, share: 0, left: 200 });
+    lines.push('Estimated time remaining: 150.00 seconds');
+    expect(progressOf(lines)).toMatchObject({ step: 3, share: 0.25, left: 150 });
+  });
+
+  it('counts the mixes as they are written', () => {
+    const p = progressOf(['3/5 Separate', '4/5 Mix', 'Writing mixes for x:', '  /m/x/mixes/x - original.mp3']);
+    expect(p).toMatchObject({ step: 4, share: 0.25 });
+  });
+
+  it('adds up to one bar for the whole song, weighted by how long each step takes', () => {
+    expect(progressOf([]).overall).toBe(0);
+    const halfway = progressOf(['1/5 Download', '2/5 Cover', '3/5 Separate',
+      'Estimated total processing time for this track: 100 seconds', 'Estimated time remaining: 50 seconds']).overall;
+    expect(halfway).toBeGreaterThan(0.3);
+    expect(halfway).toBeLessThan(0.6);
+    expect(progressOf(['5/5 Chords']).overall).toBeGreaterThan(0.9);
+  });
+
+  it('says the time left in words', () => {
+    expect(timeLeft(150, s)).toBe('about 3 min left');
+    expect(timeLeft(40, s)).toBe('less than a minute left');
   });
 });

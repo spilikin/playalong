@@ -7,7 +7,7 @@
   import AppUpdate from './AppUpdate.svelte';
   import { locale, strings } from './i18n.svelte';
   import { clearJob, installTools, maker, makeSong, stopSong } from './maker.svelte';
-  import { addedLabel, keyShort, matches, megabytes, stepOf, transposeLabel } from './maker';
+  import { addedLabel, keyShort, matches, megabytes, progressOf, timeLeft, transposeLabel } from './maker';
 
   let { onOpen, onPick, error = '' }: { onOpen: (folder: string) => void; onPick: () => void; error?: string } =
     $props();
@@ -20,7 +20,23 @@
 
   const shown = $derived(maker.songs.filter((song) => matches(song, query)));
   const job = $derived(maker.job);
-  const step = $derived(job ? stepOf(job.lines) : 0);
+  const progress = $derived(progressOf(job?.lines ?? []));
+  const step = $derived(progress.step);
+  const where = $derived(
+    [
+      step ? s.stepOf(step, s.steps[step - 1]) : '',
+      progress.share !== null ? `${Math.round(progress.share * 100)}%` : '',
+      progress.left !== null ? timeLeft(progress.left, s) : '',
+    ]
+      .filter(Boolean)
+      .join(' · '),
+  );
+
+  // The log follows its newest line, as a terminal does.
+  function follow(node: HTMLElement, _lines: number) {
+    node.scrollTop = node.scrollHeight;
+    return { update: () => (node.scrollTop = node.scrollHeight) };
+  }
   const update = $derived(maker.check?.plan.runtime || maker.check?.plan.model ? maker.check : null);
   const now = new Date();
   const place = $derived(maker.library.replace(/^\/Users\/[^/]+\//, '').replaceAll('/', ' › '));
@@ -101,10 +117,12 @@
             <b>{job.running ? s.making : job.error ? job.error : s.done}</b>
             <span class="muted small">
               {shortSource(job.source)}{job.transpose ? ` · ${transposeLabel(job.transpose, s)}` : ''}
-              {#if job.running}· {step ? s.stepOf(step, s.steps[step - 1]) : ''} · {s.opensWhenDone}{/if}
+              {#if job.running}· {where} · {s.opensWhenDone}{/if}
             </span>
             {#if job.running && !details}
-              <div class="track"><div class="fill" style:width="{(Math.max(step - 1, 0) / 5) * 100 + 10}%"></div></div>
+              <div class="track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(progress.overall * 100)}>
+                <div class="fill" style:width="{Math.max(progress.overall, 0.02) * 100}%"></div>
+              </div>
             {/if}
           </div>
           <div class="job-actions">
@@ -119,12 +137,16 @@
         {#if details}
           <ol class="steps">
             {#each s.steps as name, i (name)}
-              <li class:done={i + 1 < step || (!job.running && !job.error)} class:now={i + 1 === step && job.running}>
-                <span class="bar"></span>{name}
+              {@const done = i + 1 < step || (!job.running && !job.error)}
+              {@const now = i + 1 === step && job.running}
+              <li class:done class:now>
+                <span class="bar" class:busy={now && progress.share === null}>
+                  <span class="fill" style:width="{done ? 100 : now ? (progress.share ?? 0) * 100 : 0}%"></span>
+                </span>{name}
               </li>
             {/each}
           </ol>
-          <pre class="log">{job.lines.slice(-12).join('\n')}</pre>
+          <pre class="log" use:follow={job.lines.length}>{job.lines.join('\n')}</pre>
         {/if}
       </div>
     {/if}
@@ -380,13 +402,24 @@
     height: 4px;
     border-radius: 2px;
     background: var(--fill);
+    overflow: hidden;
+  }
+  .steps .bar .fill {
+    display: block;
+    transition: width 0.4s;
+  }
+  /* A step that can't tell how far it is yet (the model loading) still shows that it's working. */
+  .steps .bar.busy {
+    background: linear-gradient(90deg, var(--fill) 0%, var(--accent) 50%, var(--fill) 100%) 0 0 / 200% 100%;
+    animation: busy 1.4s linear infinite;
+  }
+  @keyframes busy {
+    to {
+      background-position: -200% 0;
+    }
   }
   .steps .done {
     color: var(--ink);
-  }
-  .steps .done .bar,
-  .steps .now .bar {
-    background: var(--accent);
   }
   .steps .now {
     color: var(--ink);

@@ -2,13 +2,14 @@
   // The song being made, in the player's sidebar: where it is, and Open once it's done.
   import { strings } from './i18n.svelte';
   import { clearJob, maker, stopSong } from './maker.svelte';
-  import { stepOf } from './maker';
+  import { progressOf, timeLeft } from './maker';
 
   let { onOpen }: { onOpen: (folder: string) => void } = $props();
 
   const s = $derived(strings());
   const job = $derived(maker.job);
-  const step = $derived(job ? stepOf(job.lines) : 0);
+  const progress = $derived(progressOf(job?.lines ?? []));
+  const step = $derived(progress.step);
 
   function openMade() {
     const folder = job?.made?.folder;
@@ -21,9 +22,11 @@
   <section class="card" aria-live="polite">
     {#if job.running}
       <b>{s.making}</b>
-      <div class="track"><div class="fill" style:width="{(Math.max(step - 1, 0) / 5) * 100 + 10}%"></div></div>
+      <div class="track"><div class="fill" style:width="{Math.max(progress.overall, 0.02) * 100}%"></div></div>
       <div class="row">
-        <span class="muted">{step ? s.stepOf(step, s.steps[step - 1]) : ''}</span>
+        <span class="muted">
+          {step ? s.stepOf(step, s.steps[step - 1]) : ''}{progress.left !== null ? ` · ${timeLeft(progress.left, s)}` : ''}
+        </span>
         <button onclick={stopSong}>{s.stop}</button>
       </div>
     {:else if job.made}
