@@ -38,50 +38,75 @@
   <AppUpdate />
   <ThemeToggle />
 </div>
-<main class="start">
-  <h1 class="name">Playalong</h1>
-  <p>{s.intro}</p>
-  <button class="primary" onclick={onPick}>{s.openFolder}</button>
-  {#if error}<p class="error" role="alert">{error}</p>{/if}
+<main class="start" class:with-recents={recents.length > 0}>
+  <div class="main">
+    <h1 class="name">Playalong</h1>
+    <p>{s.intro}</p>
+    <button class="primary" onclick={onPick}>{s.openFolder}</button>
+    {#if error}<p class="error" role="alert">{error}</p>{/if}
 
-  <section class="card" aria-labelledby="setup-title">
-    {#if maker.installing}
-      <h2 id="setup-title">{s.downloading}</h2>
-      {#each parts as part (part.stage)}
-        {@const st = state(part.stage)}
-        <div class="part">
-          <div class="label"><span>{part.label}</span><span class="muted">{st.text}</span></div>
-          <div class="track"><div class="fill" style:width="{Math.round(st.share * 100)}%"></div></div>
+    <section class="card" aria-labelledby="setup-title">
+      {#if maker.installing}
+        <h2 id="setup-title">{s.downloading}</h2>
+        {#each parts as part (part.stage)}
+          {@const st = state(part.stage)}
+          <div class="part">
+            <div class="label"><span>{part.label}</span><span class="muted">{st.text}</span></div>
+            <div class="track"><div class="fill" style:width="{Math.round(st.share * 100)}%"></div></div>
+          </div>
+        {/each}
+        {#if maker.progress.unpack}<p class="muted">{s.unpacking}</p>{/if}
+        <p class="muted small">{s.downloadingNote}</p>
+      {:else}
+        <h2 id="setup-title">{s.setupTitle}</h2>
+        <p class="muted">{s.setupText}</p>
+        <div class="row">
+          <button class="primary" onclick={installTools}>{size ? s.setupButton(size) : s.setupButtonPlain}</button>
+          <span class="muted small">{s.setupDisk}</span>
         </div>
-      {/each}
-      {#if maker.progress.unpack}<p class="muted">{s.unpacking}</p>{/if}
-      <p class="muted small">{s.downloadingNote}</p>
-    {:else}
-      <h2 id="setup-title">{s.setupTitle}</h2>
-      <p class="muted">{s.setupText}</p>
-      <div class="row">
-        <button class="primary" onclick={installTools}>{size ? s.setupButton(size) : s.setupButtonPlain}</button>
-        <span class="muted small">{s.setupDisk}</span>
-      </div>
-    {/if}
-    {#if maker.error}<p class="error" role="alert">{maker.error}</p>{/if}
-  </section>
+      {/if}
+      {#if maker.error}<p class="error" role="alert">{maker.error}</p>{/if}
+    </section>
+    <p class="hint">{s.dropHint}</p>
+  </div>
   {#if recents.length}
-    <h2>{s.recent}</h2>
-    <ul>
-      {#each recents as path (path)}
-        <li><button class="link" onclick={() => onOpen(path)} title={path}>{folderName(path)}</button></li>
-      {/each}
-    </ul>
+    <!-- Its own column, scrolling on its own, so the setup card can't push it out of the window. -->
+    <nav class="recents" aria-labelledby="recent-title">
+      <h2 id="recent-title">{s.recent}</h2>
+      <ul>
+        {#each recents as path (path)}
+          <li><button class="link" onclick={() => onOpen(path)} title={path}>{folderName(path)}</button></li>
+        {/each}
+      </ul>
+    </nav>
   {/if}
-  <p class="hint">{s.dropHint}</p>
 </main>
 
 <style>
   .start {
-    max-width: 520px;
-    margin: 14vh auto 0;
-    padding: 0 24px;
+    display: grid;
+    grid-template-columns: minmax(0, 520px);
+    justify-content: center;
+    column-gap: 56px;
+    height: 100vh;
+    box-sizing: border-box;
+    padding: 12vh 24px 24px;
+  }
+  .start.with-recents {
+    grid-template-columns: minmax(0, 520px) minmax(180px, 260px);
+  }
+  .main {
+    min-height: 0;
+    overflow-y: auto;
+  }
+  .recents {
+    min-height: 0;
+    overflow-y: auto;
+    /* Its heading sits level with the title's cap height. */
+    padding-top: 10px;
+  }
+  .recents h2 {
+    margin-top: 0;
   }
   .start p {
     color: var(--muted);
