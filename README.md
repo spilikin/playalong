@@ -28,8 +28,8 @@ The model weights (~700 MB) download to `~/.cache/bs-roformer-infer` on first us
 ## Usage
 
 ```sh
-# everything in one go: download, album cover, separate, the four main mixes, GarageBand stems, chords and
-# the song file (--no-garageband skips the stems)
+# a new song in one go: download, album cover, separate, chords and the song file, plus its default mixes
+# (Original, Guide, No guitar) as recipes in mixes.json that the app plays live; --garageband adds the stems
 uv run playalong run "https://www.youtube.com/watch?v=..."
 
 # age-restricted videos need your YouTube login: the default browser's is used when YouTube asks
@@ -38,7 +38,15 @@ uv run playalong run "https://www.youtube.com/watch?v=..." --cookies-from-browse
 
 # local files and already-processed tracks work too
 uv run playalong run ~/Music/song.flac
-uv run playalong run library/some-song --all --tempo 0.8
+
+# a mix from mixes.json as an MP3 in exports/, sounding as the app plays it
+uv run playalong export library/some-song guide
+
+# where the song starts and its tempo, if detection got them wrong; chords and bars are found again
+uv run playalong retime library/some-song --start 12.4 --bpm 92
+
+# a song made before mixes were live: rendered mixes go, default mixes and a new song file come
+uv run playalong refresh library/some-song
 
 # individual steps
 uv run playalong download "https://www.youtube.com/watch?v=..."
@@ -46,7 +54,7 @@ uv run playalong separate library/some-song
 uv run playalong mix library/some-song -p backing -p guide -f wav
 uv run playalong cover library/some-song -q "Artist Song"   # if the cover found is the wrong one
 
-# every mix starts with a drummer's 1-bar count-in at the song's tempo; 2 bars counts
+# rendered mix files, for use outside the app; every mix starts with a drummer's 1-bar count-in at the song's tempo; 2 bars counts
 # "ONE . TWO . one two three four"
 uv run playalong mix library/some-song -p backing --count-in 2 --tempo 0.8
 uv run playalong mix library/some-song --bpm 92          # if the detected tempo is off
@@ -115,19 +123,23 @@ Every step writes `library/<song>/<song>.playalong`, a JSON file a player opens 
 
 | field | contents |
 |---|---|
-| `format`, `version` | `"playalong-song"`, `1` |
+| `format`, `version` | `"playalong-song"`, `2` |
 | `title`, `artist`, `source` | metadata and the YouTube link |
 | `audio` | `source.wav`, sample rate, duration |
 | `song_start` | where the song proper starts (after the video intro) and how that was found |
-| `tempo` | BPM, confidence, `detected` or `user`, beats per bar |
+| `tempo` | BPM, confidence, `detected` or `user`, beats per bar, and `beat`: the one the count-in leads into |
 | `key`, `beats`, `bars` | the key, every beat and every bar start from the song start on |
 | `chords` | start, end, name, root and `major`/`minor` (`N` = no chord) |
 | `chord_shapes` | per chord: `frets` and `fingers` low E to high e (`-1` muted, `0` open), `barre` fret and string positions |
 | `cover` | `cover.jpg`, where it came from (`itunes` or the `youtube` thumbnail) and the album |
-| `stems`, `mixes`, `garageband`, `garagebands`, `chord_sheet` | where the audio and the chord sheet are (`garagebands`: the stems for every key) |
-| `transpositions` | per transposed mix (`"-2"`): the key and every chord name moved; their shapes are in `chord_shapes` |
+| `stems`, `garageband`, `garagebands`, `chord_sheet` | where the audio and the chord sheet are (`garagebands`: the stems for every key, their `.band` `project` and whether it's `outdated` after a `retime`) |
+| `transpositions` | for every key from `"-12"` to `"+12"`: the key and every chord name moved; their shapes are in `chord_shapes` |
 
 Steps that don't detect chords keep the ones already in the file.
+
+The song's mixes are recipes in `mixes.json` next to it (`"playalong-mixes"`, version 1): per mix an `id`,
+a `name`, `levels` in dB per instrument, `mute` and `solo` lists, `transpose` in semitones, `tempo` (1.0 =
+as recorded) and `count_in` bars (0–2). The app edits them; `export` renders one.
 
 ## GarageBand
 

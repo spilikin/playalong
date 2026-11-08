@@ -24,13 +24,13 @@ def test_a_song_without_a_tempo_is_mixed_without_a_count(tmp_path, capsys):
     assert "without a count-in" in capsys.readouterr().out
 
 
-def test_run_writes_garageband_stems_unless_told_not_to_and_mix_only_when_asked():
+def test_garageband_stems_only_when_asked():
     parse = build_parser().parse_args
     assert parse(["mix", "t"]).garageband is False
     assert parse(["mix", "t", "--garageband"]).garageband is True
-    assert parse(["run", "https://youtu.be/x"]).garageband is True
+    # A new song's GarageBand stems are made on request, like its mixes.
+    assert parse(["run", "https://youtu.be/x"]).garageband is False
     assert parse(["run", "https://youtu.be/x", "--garageband"]).garageband is True
-    assert parse(["run", "https://youtu.be/x", "--no-garageband"]).garageband is False
     with pytest.raises(SystemExit):
         parse(["mix", "t", "--no-garageband"])
 
@@ -62,11 +62,10 @@ def test_the_four_main_mixes_unless_told_which():
 
     parse = build_parser().parse_args
     main = ["original", "guide", "no-guitar", "vocals-only"]
-    assert _presets(parse(["run", "https://youtu.be/x"])) == main
-    assert _presets(parse(["run", "https://youtu.be/x", "--all"])) == list(PRESETS)
-    assert _presets(parse(["run", "https://youtu.be/x", "-p", "guide"])) == ["guide"]
-    assert _presets(parse(["run", "https://youtu.be/x", "-g", "guitar=off"])) == []
     assert _presets(parse(["mix", "t"])) == main
+    assert _presets(parse(["mix", "t", "--all"])) == list(PRESETS)
+    assert _presets(parse(["mix", "t", "-p", "guide"])) == ["guide"]
+    assert _presets(parse(["mix", "t", "-g", "guitar=off"])) == []
 
 
 def test_the_original_is_the_recording_not_the_stems(tmp_path):
@@ -123,3 +122,75 @@ def test_garageband_stems_can_be_made_on_their_own(tmp_path, monkeypatch):
     assert made == {"track": tmp_path, "start": 0.0, "transpose": -2, "updated": tmp_path}
     with pytest.raises(SystemExit):
         cli.main(["garageband", str(tmp_path), "-k", "13"])
+
+
+def _bundle(tmp_path):
+    import json
+
+    d = tmp_path / "song"
+    (d / "stems").mkdir(parents=True)
+    (d / "info.json").write_text(json.dumps({"title": "Song", "song_start": 2.0, "bpm": 120.0}))
+    return d
+
+
+def test_run_makes_no_mix_files_but_the_default_recipes(tmp_path, monkeypatch):
+    from playalong import cli, cover, recipes, separate
+
+    d = _bundle(tmp_path)
+    monkeypatch.setattr(cli, "_ingest", lambda source, library, browser=None: d)
+    monkeypatch.setattr(cover, "fetch_cover", lambda track, *a, **k: None)
+    monkeypatch.setattr(separate, "separate", lambda track, device=None, force=False: track / "stems")
+    monkeypatch.setattr(cli, "_detect_chords", lambda track, start, bpm: None)
+    monkeypatch.setattr(cli, "make_mixes", lambda *a, **k: pytest.fail("run renders no mixes"))
+    cli.main(["-l", str(tmp_path), "run", "https://youtu.be/x"])
+    assert [r["id"] for r in recipes.read_recipes(d)] == ["original", "guide", "no-guitar"]
+    assert not (d / "mixes").exists() or not any((d / "mixes").glob("*.mp3"))
+
+
+def test_refresh_deletes_rendered_mixes_and_keeps_the_rest(tmp_path, monkeypatch):
+    from playalong import cli, recipes
+
+    d = _bundle(tmp_path)
+    mixes = d / "mixes"
+    gb = mixes / "song - GarageBand 120 BPM"
+    gb.mkdir(parents=True)
+    (gb / "Bass.wav").write_bytes(b"")
+    (mixes / "song - GarageBand 120 BPM.band").mkdir()
+    for name in ("song - guide.mp3", "song - backing @80%.wav", "song - x.flac", "mixes.json"):
+        (mixes / name).write_bytes(b"")
+    (d / "stems" / "bass.wav").write_bytes(b"")
+    monkeypatch.setattr(cli, "_update_song", lambda track, chords=None: None)
+    cli.main(["refresh", str(d)])
+    assert sorted(p.name for p in mixes.iterdir()) == ["song - GarageBand 120 BPM", "song - GarageBand 120 BPM.band"]
+    assert (d / "stems" / "bass.wav").exists() and (gb / "Bass.wav").exists()
+    assert recipes.read_recipes(d) == recipes.DEFAULTS
+
+
+def test_retime_saves_the_users_start_and_bpm_and_marks_the_change(tmp_path, monkeypatch):
+    import json
+
+    from playalong import cli
+
+    d = _bundle(tmp_path)
+    seen = {}
+    monkeypatch.setattr(cli, "_detect_chords", lambda track, start, bpm: seen.update(start=start, bpm=bpm))
+    monkeypatch.setattr(cli, "_update_song", lambda track, chords=None: None)
+    cli.main(["retime", str(d), "--start", "3.5", "--bpm", "96"])
+    info = json.loads((d / "info.json").read_text())
+    assert info["song_start"] == 3.5 and info["song_start_source"] == "user"
+    assert seen == {"start": None, "bpm": 96.0}  # the stored start is used, so the beat is anchored on it
+    assert info["timing_changed"] > 0
+
+
+def test_export_renders_one_recipe_to_the_exports_folder(tmp_path, monkeypatch):
+    from playalong import cli, mix, recipes
+
+    d = _bundle(tmp_path)
+    recipes.write_recipes(d, [{**recipes.DEFAULTS[1], "transpose": -2, "tempo": 0.9, "count_in": 0}])
+    got = {}
+    monkeypatch.setattr(mix, "render_recipe", lambda track, recipe, dest: got.update(recipe=recipe, dest=dest) or dest)
+    cli.main(["export", str(d), "guide"])
+    assert got["recipe"]["transpose"] == -2 and got["recipe"]["tempo"] == 0.9
+    assert got["dest"] == d / "exports" / "song - Guide.mp3"
+    with pytest.raises(SystemExit):
+        cli.main(["export", str(d), "nope"])

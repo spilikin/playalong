@@ -61,7 +61,7 @@ def load_stems(stems_dir: Path) -> tuple[dict[str, np.ndarray], int]:
     return stems, rate
 
 
-def render(stems: dict[str, np.ndarray], gains: dict[str, float | None]) -> np.ndarray:
+def render(stems: dict[str, np.ndarray], gains: dict[str, float | None], normalize: bool = True) -> np.ndarray:
     unknown = set(gains) - set(stems)
     if unknown:
         raise ValueError(f"unknown stems: {', '.join(sorted(unknown))}; have {', '.join(sorted(stems))}")
@@ -75,12 +75,83 @@ def render(stems: dict[str, np.ndarray], gains: dict[str, float | None]) -> np.n
             continue
         out[: len(audio)] += audio * np.float32(10 ** (db / 20))
 
+    if not normalize:
+        return out
     # Only pull the level down: boosting a sparse mix (e.g. drums-only) up to full scale
     # would make switching between playalong versions jarring.
     peak = float(np.abs(out).max())
     if peak > PEAK_CEILING:
         out *= PEAK_CEILING / peak
     return out
+
+
+LOOKAHEAD = 0.005  # seconds the gain starts coming down before a peak
+HOLD = 0.1  # seconds it stays down after one, so it doesn't pump on every transient
+
+
+def _sliding_min(x: np.ndarray, width: int) -> np.ndarray:
+    """min(x[i : i + width]) for every i, in linear time (van Herk / Gil-Werman blocks)."""
+    n = len(x)
+    padded = np.concatenate([x, np.ones(width - 1 + (-(n + width - 1)) % width, x.dtype)])
+    blocks = padded.reshape(-1, width)
+    ahead = np.minimum.accumulate(blocks[:, ::-1], axis=1)[:, ::-1].ravel()
+    behind = np.minimum.accumulate(blocks, axis=1).ravel()
+    return np.minimum(ahead[:n], behind[width - 1 : width - 1 + n])
+
+
+def limit(audio: np.ndarray, rate: int, ceiling: float = PEAK_CEILING) -> np.ndarray:
+    """Peaks held at `ceiling` without touching anything quieter, as the app's live engine does.
+
+    The gain each sample needs is held low from LOOKAHEAD before a peak to HOLD after it, then smoothed
+    over LOOKAHEAD; every sample the smoothing touches around a peak is already at or below that peak's
+    gain, so the ceiling holds exactly.
+    """
+    peak = np.abs(audio).max(axis=1) if audio.ndim == 2 else np.abs(audio)
+    need = np.minimum(1.0, ceiling / np.maximum(peak, 1e-12))
+    if need.min() >= 1.0:
+        return audio
+    ahead, hold = max(1, int(LOOKAHEAD * rate)), int(HOLD * rate)
+    held = _sliding_min(np.concatenate([np.ones(hold), need]), hold + ahead + 1)[: len(need)]
+    half = ahead // 2
+    sums = np.concatenate([[0.0], np.cumsum(np.pad(held, (half, half), mode="edge"))])
+    gain = (sums[2 * half + 1 :] - sums[: -2 * half - 1]) / (2 * half + 1)
+    gain = np.minimum(gain, held)
+    out = audio * (gain[:, None] if audio.ndim == 2 else gain).astype(audio.dtype)
+    return out
+
+
+def render_recipe(track_dir: Path, recipe: dict, dest: Path) -> Path:
+    """One mix recipe as a file, sounding as the app plays it: intro cut, count-in clicks added after the
+    key and tempo change (so they stay crisp), and the same limiter."""
+    from playalong import recipes
+    from playalong.countin import BEATS_PER_BAR, LEAD, clicks, stick
+    from playalong.tempo import song_tempo
+
+    stems, rate = load_stems(track_dir / "stems")
+    start = song_start(track_dir, stems, rate)
+    audio = None
+    if recipes.plays_source(recipe) and (source := track_dir / "source.wav").exists():
+        audio, sr = sf.read(source, dtype="float32", always_2d=True)
+        audio = audio if sr == rate else None
+    if audio is None:
+        audio = render(stems, recipes.gains(recipe), normalize=False)
+
+    tempo, bars = float(recipe.get("tempo", 1.0)), int(recipe.get("count_in", 0))
+    found = song_tempo(track_dir, stems, rate, start) if bars else None
+    if found:
+        bpm, beat = found
+        period = 60.0 / bpm
+        music = place_beat(audio, rate, start, beat, LEAD + BEATS_PER_BAR * bars * period)
+    else:
+        music = trim(audio, rate, start)
+    music = stretch(music, rate, tempo, int(recipe.get("transpose", 0)))
+    if found:
+        sounds = {accent: stick(rate, accent) for accent in (True, False)}
+        for b, accent in clicks(bars):
+            at = int(round((LEAD + b * period) / tempo * rate))
+            click = sounds[accent][: max(0, len(music) - at)]
+            music[at : at + len(click)] += click[:, None]
+    return write(limit(music, rate), rate, dest)
 
 
 def trim(audio: np.ndarray, rate: int, start: float) -> np.ndarray:
