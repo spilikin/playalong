@@ -217,6 +217,14 @@ impl Player {
     }
 }
 
+/// Stops a player without waiting for it. Its audio thread hands each position report to the app's main
+/// thread, where the command closing it may be running: waiting for the thread there would wait forever.
+pub fn retire(player: Option<Player>) {
+    if let Some(player) = player {
+        std::thread::spawn(move || drop(player));
+    }
+}
+
 impl Drop for Player {
     fn drop(&mut self) {
         self.send(Command::Stop);
@@ -337,5 +345,30 @@ mod device {
         let at = seen.lock().unwrap().last().unwrap().0;
         assert!((at - 60.5).abs() < 0.3, "after the jump at {at}");
         println!("positions reported: {}", seen.lock().unwrap().len());
+    }
+}
+
+#[cfg(test)]
+mod retire_tests {
+    use super::*;
+
+    /// A song closed while its report is stuck (the main thread busy) must not wait for it: the command that
+    /// closes it runs on that same main thread.
+    #[test]
+    #[ignore]
+    fn closing_never_waits_for_the_audio_thread() {
+        let folder = std::path::PathBuf::from(std::env::var("PLAYALONG_SMOKE_SONG").unwrap());
+        let song = crate::song::open(&folder).unwrap();
+        let recipe = crate::mixes::load(&song.folder).unwrap()[0].clone();
+        let stems = Arc::new(Stems::load(&song.folder, &song.song).unwrap());
+        let player = Player::start(stems, SongTiming::from_song(&song.song), &recipe, |_, _| {
+            std::thread::sleep(Duration::from_secs(3));
+        })
+        .unwrap();
+        player.send(Command::Play);
+        std::thread::sleep(Duration::from_millis(100));
+        let begun = Instant::now();
+        retire(Some(player));
+        assert!(begun.elapsed() < Duration::from_millis(200), "closing waited {:?}", begun.elapsed());
     }
 }

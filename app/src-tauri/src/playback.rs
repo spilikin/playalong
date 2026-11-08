@@ -8,7 +8,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
 use crate::engine::mixer::Recipe;
-use crate::engine::player::{Command, Player};
+use crate::engine::player::{retire, Command, Player};
 use crate::engine::render::SongTiming;
 use crate::engine::timeline::Timeline;
 use crate::engine::Stems;
@@ -39,7 +39,9 @@ pub async fn playback_open(
     folder: String,
     mix: Option<String>,
 ) -> Result<Opened, String> {
-    *playback.0.lock().unwrap() = None;
+    // Taken out before it's stopped, so no other command waits on the lock meanwhile.
+    let old = playback.0.lock().unwrap().take();
+    retire(old);
     let handle = app.clone();
     let (player, opened) = tauri::async_runtime::spawn_blocking(move || -> Result<(Player, Opened), String> {
         let song = crate::song::open(Path::new(&folder))?;
@@ -97,5 +99,6 @@ pub fn playback_set_mix(playback: State<'_, Playback>, recipe: Recipe) -> Result
 /// Back to the Library: the stems leave memory.
 #[tauri::command]
 pub fn playback_close(playback: State<'_, Playback>) {
-    *playback.0.lock().unwrap() = None;
+    let old = playback.0.lock().unwrap().take();
+    retire(old);
 }
