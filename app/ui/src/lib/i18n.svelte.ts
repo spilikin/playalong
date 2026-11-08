@@ -189,7 +189,7 @@ const LV: Strings = {
   makingMixes: (n: number) => `Veido ${n} ${n === 1 ? 'miksu' : 'miksus'}`,
   mixesOf: (done: number, n: number) => `${done} no ${n} gatavi`,
   mixesReady: 'Miksi gatavi · Atvērt',
-  manageMixes: 'Manage mikses',
+  manageMixes: 'Edit',
   manageMixesTitle: 'Veido un pārvaldi šīs dziesmas miksus',
   backToChords: '‹ Akordi',
   songHas: 'Dziesmai ir:',
