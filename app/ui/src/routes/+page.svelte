@@ -8,30 +8,34 @@
   import CountIn from '$lib/CountIn.svelte';
   import Library from '$lib/Library.svelte';
   import MakingCard from '$lib/MakingCard.svelte';
-  import MixesCard from '$lib/MixesCard.svelte';
-  import MixesPage from '$lib/MixesPage.svelte';
   import MixIcon from '$lib/MixIcon.svelte';
   import ThemeToggle from '$lib/ThemeToggle.svelte';
   import AppUpdate from '$lib/AppUpdate.svelte';
   import { checkAppUpdate } from '$lib/selfUpdate.svelte';
   import Welcome from '$lib/Welcome.svelte';
   import Wordmark from '$lib/Wordmark.svelte';
-  import { clearJob, clearMixJob, maker, refreshLibrary, startMaker } from '$lib/maker.svelte';
+  import { clearJob, maker, refreshLibrary, startMaker } from '$lib/maker.svelte';
+  import { describeMix, liveMix, type Recipe } from '$lib/mixes';
+  import {
+    chooseMix,
+    closePlayback,
+    currentMix,
+    openPlayback,
+    pause,
+    play,
+    playback,
+    seek,
+  } from '$lib/playback.svelte';
   import { strings } from '$lib/i18n.svelte';
   import {
     chordIndexAt,
     chordLabel,
     countAt,
-    defaultMix,
     forMix,
-    groupMixes,
-    mixBlurb,
-    mixLabel,
     mixTime,
     sheetBars,
     songTime,
     upcoming,
-    type Mix,
     type OpenedSong,
   } from '$lib/song';
 
@@ -39,25 +43,23 @@
   const UPCOMING = 4;
 
   let opened = $state<OpenedSong | null>(null);
-  let mix = $state<Mix | undefined>();
-  let audio = $state<HTMLAudioElement>();
-  let mixSeconds = $state(0);
-  let duration = $state(0);
-  let playing = $state(false);
   let error = $state('');
   let dropping = $state(false);
   let recents = $state<string[]>(loadRecents());
   let scroller = $state<HTMLElement>();
-  let managing = $state(false);
-  // Song time to resume at once a newly chosen mix has loaded, so switching mixes keeps your place.
+  // Song time to wait at once the song is open (`--at` on the command line).
   let resumeAt: number | null = null;
 
+  // The playing mix's timing, from its recipe and the timeline the engine gave it.
+  const recipe = $derived(currentMix());
+  const mix = $derived(recipe && playback.timeline ? liveMix(recipe, playback.timeline) : undefined);
+  const mixSeconds = $derived(playback.mixSeconds);
+  const playing = $derived(playback.playing);
+  const duration = $derived(playback.duration);
   // Seen through the playing mix, so a transposed one shows its own key and chords.
   const song = $derived(opened ? forMix(opened.song, mix) : undefined);
-  const src = $derived(opened && mix ? convertFileSrc(`${opened.folder}/${mix.file}`) : '');
   const cover = $derived(opened && song?.cover ? convertFileSrc(`${opened.folder}/${song.cover.file}`) : '');
   const s = $derived(strings());
-  const groups = $derived(groupMixes(song?.mixes ?? [], s));
   // Built as text, since Svelte drops the spaces at the edges of {#if} blocks.
   const details = $derived(
     [
@@ -93,24 +95,27 @@
 
   async function openPath(path: string) {
     try {
-      const result = await invoke<OpenedSong>('open_song', { path });
-      audio?.pause();
+      let result = await invoke<OpenedSong>('open_song', { path });
+      // A song from before live mixes still has rendered files and no mixes of its own: the CLI brings it up
+      // to date once.
+      if (result.song.version < 2) {
+        if (!maker.installed) throw s.needsTools;
+        result = await invoke<OpenedSong>('song_refresh', { folder: result.folder });
+      }
+      await openPlayback(result.folder);
       opened = result;
-      managing = false;
-      mix = defaultMix(result.song.mixes);
-      mixSeconds = 0;
-      resumeAt = null;
       error = '';
       remember(path);
+      if (resumeAt !== null && mix && song) void seek(mixTime(mix, resumeAt, song));
+      resumeAt = null;
     } catch (e) {
       error = String(e);
     }
   }
 
   function toLibrary() {
-    audio?.pause();
+    void closePlayback();
     opened = null;
-    managing = false;
     error = '';
     void refreshLibrary();
   }
@@ -124,17 +129,6 @@
     }
   });
 
-  // New mixes for the open song join its list without interrupting what's playing.
-  $effect(() => {
-    const made = maker.mixJob?.made;
-    if (made && opened && made.folder === opened.folder) {
-      const playing = mix?.file;
-      opened = made;
-      mix = made.song.mixes.find((m) => m.file === playing) ?? defaultMix(made.song.mixes);
-      clearMixJob();
-    }
-  });
-
   const AUDIO = /\.(wav|mp3|flac|m4a|aac|ogg|opus|aiff?)$/i;
 
   async function pick() {
@@ -142,38 +136,18 @@
     if (typeof chosen === 'string') await openPath(chosen);
   }
 
-  function chooseMix(choice: Mix) {
-    // Compared by file: state wraps mixes in proxies, so the same mix isn't always the same object.
-    if (!song || choice.file === mix?.file) return;
-    resumeAt = mixSeconds > 0 ? time : null;
-    mix = choice;
-  }
-
-  function loaded() {
-    if (!audio || !mix || !song) return;
-    duration = audio.duration;
-    if (resumeAt !== null) audio.currentTime = Math.max(0, mixTime(mix, resumeAt, song));
-    resumeAt = null;
-    mixSeconds = audio.currentTime;
-    if (playing) void audio.play();
-  }
-
   function toggle() {
-    if (!audio) return;
-    if (audio.paused) void audio.play();
-    else audio.pause();
+    void (playing ? pause() : play());
   }
 
   function seekMix(seconds: number) {
-    if (!audio) return;
-    audio.currentTime = Math.min(Math.max(0, seconds), duration || seconds);
-    mixSeconds = audio.currentTime;
+    void seek(seconds);
   }
 
   /** Stop, back to the start of the mix (count-in included) and the top of the sheet; Play starts again. */
   async function restart() {
-    audio?.pause();
-    seekMix(0);
+    await pause();
+    await seek(0);
     // Jump once the sheet has redrawn for the new position: WebKit drops an animated scroll when the
     // layout changes under it, which made Restart need a second click to reach the top.
     await tick();
@@ -184,17 +158,6 @@
     if (mix && song) seekMix(mixTime(mix, songSeconds, song));
   }
 
-  // The audio element reports its position only a few times a second; chords and the count need every frame.
-  $effect(() => {
-    if (!playing || !audio) return;
-    const player = audio;
-    let frame = requestAnimationFrame(function tick() {
-      mixSeconds = player.currentTime;
-      frame = requestAnimationFrame(tick);
-    });
-    return () => cancelAnimationFrame(frame);
-  });
-
   function keys(event: KeyboardEvent) {
     if (!opened || event.target instanceof HTMLInputElement) return;
     if (event.code === 'Space') {
@@ -204,8 +167,8 @@
     else if (event.key === 'ArrowRight') seekMix(mixSeconds + 5);
     else if (event.key === 'Home') restart();
     else if (/^Digit[1-4]$/.test(event.code) && !event.metaKey && !event.ctrlKey) {
-      const choice = groups.main[Number(event.code.slice(5)) - 1];
-      if (choice) chooseMix(choice);
+      const choice = playback.mixes[Number(event.code.slice(5)) - 1];
+      if (choice) void chooseMix(choice.id);
     }
   }
 
@@ -218,8 +181,8 @@
     invoke<{ path: string | null; at: number | null } | null>('launch_args')
       .then(async (launch) => {
         if (!launch?.path) return;
+        resumeAt = launch.at;
         await openPath(launch.path);
-        if (launch.at !== null) resumeAt = launch.at;
       })
       .catch(() => {});
     getCurrentWebview()
@@ -268,14 +231,6 @@
         <button class="play" onclick={toggle} aria-label={playing ? s.pause : s.play} title={s.playTitle}
           >{playing ? '❚❚' : '▶'}</button
         >
-        {#if maker.installed}
-          <button class="edit" aria-pressed={managing} title={s.manageMixesTitle} onclick={() => (managing = !managing)}>
-            <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
-              <path d="M11.5 2.5l2 2L6 12H4v-2z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" />
-            </svg>
-            {s.manageMixes}
-          </button>
-        {/if}
       </div>
       <div class="now" data-tauri-drag-region>
         {#if cover}
@@ -318,41 +273,16 @@
     </header>
 
     <nav class="tray" aria-label={s.mixes}>
-      {#if groups.main.length}
-        <h2>{s.mixes}</h2>
-        {#each groups.main as m, i (m.file)}
-          {@render mixButton(m, `${mixBlurb(m, s)} (${i + 1})`)}
-        {/each}
-      {/if}
-      {#if groups.more.length}
-        <h2 class:more={groups.main.length > 0}>{s.more}</h2>
-        {#each groups.more as m (m.file)}
-          {@render mixButton(m, mixBlurb(m, s))}
-        {/each}
-      {/if}
-      <MixesCard openFolder={opened.folder} onOpen={openPath} />
+      <h2>{s.mixes}</h2>
+      {#each playback.mixes as m, i (m.id)}
+        {@render mixButton(m, i)}
+      {/each}
       <MakingCard onOpen={openPath} />
       <div class="foot"><Wordmark /></div>
     </nav>
 
     <div class="main">
       {#if error}<p class="error banner" role="alert">{error}</p>{/if}
-      {#if managing}
-        <MixesPage
-          song={opened.song}
-          folder={opened.folder}
-          playing={mix}
-          onPlay={chooseMix}
-          onClose={() => (managing = false)}
-        />
-      {:else}
-      {#if !song.mixes.length}
-        <p class="banner">{s.noMixes[0]}<code>playalong mix</code>{s.noMixes[1]}</p>
-      {:else if mix && mix.source_offset === null}
-        <p class="banner">
-          {s.oldMix[0]}<code>playalong mix</code>{s.oldMix[1]}
-        </p>
-      {/if}
       {#if !song.chords}
         <p class="banner">{s.noChords[0]}<code>playalong chords</code>{s.noChords[1]}</p>
       {/if}
@@ -378,37 +308,20 @@
       <main class="sheet-wrap" bind:this={scroller}>
         <ChordSheet {bars} shapes={song.chord_shapes} {time} onSeek={seekSong} viewport={scroller} />
       </main>
-      {/if}
     </div>
   </div>
-
-  {#if src}
-    <audio
-      bind:this={audio}
-      {src}
-      preload="auto"
-      onloadedmetadata={loaded}
-      onplay={() => (playing = true)}
-      onpause={() => (playing = false)}
-      onended={() => (playing = false)}
-      ontimeupdate={() => {
-        if (audio && !playing) mixSeconds = audio.currentTime;
-      }}
-      onerror={() => (error = s.cantPlay(mix?.file ?? ''))}
-    ></audio>
-  {/if}
 {/if}
 
-{#snippet mixButton(m: Mix, hint: string)}
+{#snippet mixButton(m: Recipe, i: number)}
   <button
     class="mix"
-    aria-pressed={m.file === mix?.file}
-    aria-label={mixLabel(m, s)}
-    title={hint}
-    onclick={() => chooseMix(m)}
+    aria-pressed={m.id === playback.current}
+    aria-label={`${m.name}, ${describeMix(m, s)}`}
+    title={i < 4 ? `${describeMix(m, s)} (${i + 1})` : describeMix(m, s)}
+    onclick={() => void chooseMix(m.id)}
   >
-    <span class="icon"><MixIcon name={m.name} /></span>
-    <span class="label">{mixLabel(m, s)}<span class="blurb">{mixBlurb(m, s)}</span></span>
+    <span class="icon"><MixIcon name={m.id} /></span>
+    <span class="label">{m.name}<span class="blurb">{describeMix(m, s)}</span></span>
   </button>
 {/snippet}
 
@@ -577,26 +490,6 @@
     font-size: 11px;
     font-weight: 600;
     color: var(--muted);
-  }
-  .tray h2.more {
-    margin-top: 14px;
-  }
-  /* Stands apart from the round playback buttons: it changes what the window shows, not what plays. */
-  .controls .edit {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    margin-left: 6px;
-    padding: 5px 11px;
-    border-radius: 8px;
-    border-color: var(--accent);
-    color: var(--accent);
-    font-size: 12px;
-    font-weight: 600;
-  }
-  .controls .edit[aria-pressed='true'] {
-    background: var(--accent);
-    color: var(--on-accent);
   }
   .foot {
     margin-top: auto;

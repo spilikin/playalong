@@ -1,8 +1,6 @@
 // The song file the playalong CLI writes (`<track>/<track>.playalong`), and the timing that ties a
 // playing mix to the song's beats and chords. Song times are seconds in the track's source.wav;
-// mix times are seconds in the mix file.
-
-import { STRINGS, type Strings } from './i18n.svelte';
+// mix times are seconds of the mix as it plays (count-in included, at its tempo).
 
 export interface CountClick {
   time: number;
@@ -16,13 +14,12 @@ export interface CountIn {
   downbeat: number;
 }
 
+/** How a playing mix lines up with the song (see liveMix in mixes.ts). */
 export interface Mix {
-  file: string;
-  name: string;
   tempo: number;
-  /** Semitones the mix is moved by; missing in song files written before mixes could be transposed. */
+  /** Semitones the mix is moved by. */
   transpose?: number;
-  /** Song time at the start of the mix; null for mixes rendered before the CLI recorded it. */
+  /** Song time at the start of the mix; null falls back to the song start. */
   source_offset: number | null;
   count_in: CountIn | null;
 }
@@ -48,17 +45,24 @@ export interface Song {
   title: string;
   artist: string | null;
   key: string | null;
-  tempo: { bpm: number; confidence: number | null; source: string | null; beats_per_bar: number } | null;
+  tempo: {
+    bpm: number;
+    confidence: number | null;
+    source: string | null;
+    beats_per_bar: number;
+    /** The beat the count-in leads into (song file version 2). */
+    beat?: number | null;
+  } | null;
   song_start: { seconds: number; source: string | null } | null;
   beats: number[];
   bars: number[];
   chords: ChordSpan[] | null;
   chord_shapes: Record<string, Shape>;
-  mixes: Mix[];
-  /** Per transposed mix ("-2", "+3"): the key and every chord name moved, with shapes in chord_shapes. */
+  /** For every other key ("-12"…"+12"): the key and every chord name moved, with shapes in chord_shapes. */
   transpositions?: Record<string, { key: string; chords: Record<string, string> }>;
-  /** GarageBand stems, one folder per key they were made in, and the project built from them if there is one. */
-  garagebands?: { folder: string; bpm: number | null; transpose: number; project?: string }[];
+  /** GarageBand stems, one folder per key they were made in, the project built from them, and whether a
+   * later change of start or tempo left that project behind. */
+  garagebands?: { folder: string; bpm: number | null; transpose: number; project?: string; outdated?: boolean }[];
   audio: { file: string; sample_rate: number; duration: number } | null;
   /** Missing in song files written before the CLI fetched covers. */
   cover?: { file: string; source: string | null; album: string | null } | null;
@@ -142,45 +146,6 @@ export function countAt(mix: Mix, mixSeconds: number): CountState {
   if (index < 0) return { phase: 'ready' };
   const click = count.clicks[index];
   return { phase: 'count', count: click.count, accent: click.accent, index };
-}
-
-const extension = (file: string) => file.split('.').pop()?.toLowerCase() ?? '';
-
-/** The original key and full speed first, MP3 over WAV, and the guide mix: the whole song with the guitar faint, to play along to. */
-export function defaultMix(mixes: Mix[]): Mix | undefined {
-  const score = (m: Mix) => rank(m) + (m.name === 'guide' ? 0 : 1);
-  return [...mixes].sort((a, b) => score(a) - score(b))[0];
-}
-
-/** The mixes the CLI renders by default, in the order the tray shows them (keys 1–4). */
-export const MAIN_MIXES = ['original', 'guide', 'no-guitar', 'vocals-only'];
-
-const rank = (m: Mix) => (m.transpose ? 8 : 0) + (m.tempo === 1 ? 0 : 4) + (extension(m.file) === 'mp3' ? 0 : 2);
-
-/** One of each main mix (original key, full speed MP3 where there's a choice), in order; every other mix after. */
-export function groupMixes(mixes: Mix[], s: Strings = STRINGS.en): { main: Mix[]; more: Mix[] } {
-  const main = MAIN_MIXES.flatMap((name) => {
-    const found = mixes.filter((m) => m.name === name).sort((a, b) => rank(a) - rank(b));
-    return found.length ? [found[0]] : [];
-  });
-  const more = mixes
-    .filter((m) => !main.some((x) => x.file === m.file))
-    .sort((a, b) => mixLabel(a, s).localeCompare(mixLabel(b, s)));
-  return { main, more };
-}
-
-export function mixBlurb(mix: Mix, s: Strings = STRINGS.en): string {
-  return s.mixNames[mix.name]?.[1] ?? s.customMix;
-}
-
-export function mixLabel(mix: Mix, s: Strings = STRINGS.en): string {
-  // Custom mixes are named on the command line, so they keep that name.
-  const words = mix.name.replace(/-/g, ' ');
-  const parts = [s.mixNames[mix.name]?.[0] ?? words.charAt(0).toUpperCase() + words.slice(1)];
-  if (mix.transpose) parts.push(signed(mix.transpose).replace('-', '−'));
-  if (mix.tempo !== 1) parts.push(`${Math.round(mix.tempo * 100)}%`);
-  if (extension(mix.file) !== 'mp3') parts.push(extension(mix.file).toUpperCase());
-  return parts.join(' · ');
 }
 
 export interface BeatCell {

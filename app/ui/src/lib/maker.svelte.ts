@@ -5,7 +5,6 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { OpenedSong } from './song';
 import type { Check, Installed, LibrarySong, Progress } from './maker';
-import type { MixChoice } from './mixChoice';
 
 export interface Job {
   source: string;
@@ -13,17 +12,6 @@ export interface Job {
   running: boolean;
   error: string;
   /** The finished song, until it's opened. */
-  made: OpenedSong | null;
-}
-
-/** Mixes being made for a song, in the background while it plays. */
-export interface MixJob {
-  folder: string;
-  count: number;
-  lines: string[];
-  running: boolean;
-  error: string;
-  /** The song with its new mixes, until the player has taken it. */
   made: OpenedSong | null;
 }
 
@@ -39,7 +27,6 @@ export const maker = $state({
   library: '',
   songs: [] as LibrarySong[],
   job: null as Job | null,
-  mixJob: null as MixJob | null,
   /** An audio file dropped on the Library, waiting in the link field. */
   draft: '',
   error: '',
@@ -59,12 +46,6 @@ async function listenOnce() {
     // A progress bar redraws its line; keep only its latest state.
     const last = job.lines.at(-1);
     if (last && /\d%|remaining/.test(last) && /\d%|remaining/.test(e.payload.line)) job.lines.pop();
-    job.lines.push(e.payload.line);
-    if (job.lines.length > KEEP_LINES) job.lines.splice(0, job.lines.length - KEEP_LINES);
-  });
-  await listen<{ line: string }>('make-mixes-line', (e) => {
-    const job = maker.mixJob;
-    if (!job) return;
     job.lines.push(e.payload.line);
     if (job.lines.length > KEEP_LINES) job.lines.splice(0, job.lines.length - KEEP_LINES);
   });
@@ -125,23 +106,3 @@ export async function stopSong() {
 export function clearJob() {
   maker.job = null;
 }
-
-export async function makeMixes(folder: string, choice: MixChoice, count: number) {
-  maker.mixJob = { folder, count, lines: [], running: true, error: '', made: null };
-  const job = maker.mixJob;
-  try {
-    job.made = await invoke<OpenedSong>('make_mixes', { folder, choice });
-  } catch (e) {
-    job.error = String(e);
-  } finally {
-    job.running = false;
-    await refreshLibrary();
-  }
-}
-
-export function clearMixJob() {
-  maker.mixJob = null;
-}
-
-/** Mix files written so far: the CLI prints each one's path as it's done. */
-export const mixesWritten = (lines: string[]) => lines.filter((l) => /^ {2}\//.test(l)).length;
