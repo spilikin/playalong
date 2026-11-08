@@ -123,4 +123,6 @@ button:focus-visible {
 }
 .error {
   color: var(--error);
+  /* Errors can carry a long path or link; it wraps instead of running out of its box. */
+  overflow-wrap: anywhere;
 }

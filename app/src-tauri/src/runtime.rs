@@ -258,11 +258,24 @@ fn http(stall: Duration) -> reqwest::Result<reqwest::blocking::Client> {
     reqwest::blocking::Client::builder().connect_timeout(Duration::from_secs(30)).timeout(stall).build()
 }
 
+/// What a failed request to GitHub means for the person setting up: a status from GitHub, or no answer.
+fn github_trouble(status: Option<u16>) -> String {
+    match status {
+        Some(code @ 500..) => format!("GitHub isn't answering right now (error {code}). Try again in a while."),
+        Some(code) => format!("The audio tools aren't on GitHub (error {code}). Update Playalong."),
+        None => "Can't connect to GitHub. Check the internet connection and try again.".into(),
+    }
+}
+
+fn trouble(e: reqwest::Error) -> String {
+    github_trouble(e.status().map(|s| s.as_u16()))
+}
+
 pub fn fetch_manifest(url: &str) -> Result<Manifest, String> {
     let response = http(STALL)
         .and_then(|c| c.get(url).send())
         .and_then(|r| r.error_for_status())
-        .map_err(|e| format!("can't reach the runtime download: {e}"))?;
+        .map_err(trouble)?;
     Manifest::parse(&response.text().map_err(|e| format!("can't read the runtime manifest: {e}"))?)
 }
 
@@ -270,7 +283,7 @@ pub fn fetch(archive: &Archive, to: &Path, progress: impl FnMut(u64)) -> Result<
     let response = http(STALL)
         .and_then(|c| c.get(&archive.url).send())
         .and_then(|r| r.error_for_status())
-        .map_err(|e| format!("can't download {}: {e}", archive.file))?;
+        .map_err(trouble)?;
     download(response, to, &archive.sha256, progress)
 }
 
@@ -531,5 +544,12 @@ mod tests {
         forget_bytecode(cache.path());
         assert!(!cache.path().join("pycache").exists());
         assert!(cache.path().join("yt-dlp").exists(), "other caches stay");
+    }
+
+    #[test]
+    fn github_trouble_reads_as_plain_words() {
+        assert_eq!(github_trouble(Some(504)), "GitHub isn't answering right now (error 504). Try again in a while.");
+        assert_eq!(github_trouble(Some(404)), "The audio tools aren't on GitHub (error 404). Update Playalong.");
+        assert_eq!(github_trouble(None), "Can't connect to GitHub. Check the internet connection and try again.");
     }
 }

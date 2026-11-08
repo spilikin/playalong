@@ -99,6 +99,9 @@
     padding: 0;
     margin: 0;
   }
+  .start .error {
+    color: var(--error);
+  }
   .start .hint {
     margin-top: 32px;
     font-size: 13px;
