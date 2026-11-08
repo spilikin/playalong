@@ -66,6 +66,7 @@ pub fn run() {
             maker::runtime_install,
             maker::make_song,
             maker::make_mixes,
+            maker::open_in_garageband,
             maker::cancel_make,
             maker::default_library,
             maker::list_library

@@ -77,7 +77,33 @@ def _mix(args: argparse.Namespace, track_dir: Path) -> None:
     if args.garageband:
         from playalong.garageband import export_stems
 
-        print(f"  {export_stems(track_dir, start, args.bpm, args.transpose)}")
+        stems_dir = export_stems(track_dir, start, args.bpm, args.transpose)
+        print(f"  {stems_dir}")
+        if args.band:
+            _band(track_dir, stems_dir, args.transpose)
+
+
+def _band(track_dir: Path, stems_dir: Path, transpose: int) -> None:
+    """The GarageBand project for stems just written, in their tempo and the song's key moved with them."""
+    import json
+
+    from playalong import band
+    from playalong.chords import transpose_key
+    from playalong.song import GARAGEBAND, song_path
+
+    found = GARAGEBAND.search(stems_dir.name)
+    bpm = int(found["bpm"]) if found and found["bpm"] else None
+    try:
+        key = json.loads(song_path(track_dir).read_text()).get("key")
+    except (FileNotFoundError, json.JSONDecodeError):
+        key = None
+    if key and transpose:
+        key = transpose_key(key, transpose)
+    print("Building the GarageBand project (GarageBand opens for a moment; please don't type meanwhile)")
+    try:
+        print(f"  {band.build_project(stems_dir, bpm, key)}")
+    except band.BandError as e:
+        raise SystemExit(str(e)) from e
 
 
 def _add_mix_options(p: argparse.ArgumentParser, garageband: bool = False) -> None:
@@ -107,6 +133,9 @@ def _add_mix_options(p: argparse.ArgumentParser, garageband: bool = False) -> No
                          f"--transpose applies){' (default)' if garageband else ''}")
     if garageband:
         gb.add_argument("--no-garageband", dest="garageband", action="store_false", help="skip the GarageBand stems")
+    g.add_argument("--band", action="store_true",
+                   help="with the GarageBand stems, also build the GarageBand project (.band) from them; GarageBand "
+                        "opens for half a minute and needs Accessibility permission")
     trim = g.add_mutually_exclusive_group()
     trim.add_argument("-s", "--start", type=float, metavar="SECONDS",
                       help="where the song starts, overriding intro detection")
@@ -149,6 +178,9 @@ def build_parser() -> argparse.ArgumentParser:
     gb.add_argument("-k", "--transpose", type=int, default=0, metavar="SEMITONES",
                     help="move the pitch up or down by semitones (e.g. -2)")
     gb.add_argument("--bpm", type=float, help="the song's tempo, if detection gets it wrong (saved for the track)")
+    gb.add_argument("--band", action="store_true",
+                    help="also build the GarageBand project (.band); GarageBand opens for half a minute and needs "
+                         "Accessibility permission")
     gb_trim = gb.add_mutually_exclusive_group()
     gb_trim.add_argument("-s", "--start", type=float, metavar="SECONDS",
                          help="where the song starts, overriding intro detection")
@@ -223,7 +255,10 @@ def main(argv: list[str] | None = None) -> None:
 
         if not -12 <= args.transpose <= 12:
             raise SystemExit("--transpose must be between -12 and 12 semitones")
-        print(f"  {garageband.export_stems(args.track, 0.0 if args.no_trim else args.start, args.bpm, args.transpose)}")
+        stems_dir = garageband.export_stems(args.track, 0.0 if args.no_trim else args.start, args.bpm, args.transpose)
+        print(f"  {stems_dir}")
+        if args.band:
+            _band(args.track, stems_dir, args.transpose)
         _update_song(args.track)
         return
 

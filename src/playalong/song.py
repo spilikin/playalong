@@ -93,6 +93,10 @@ def _files(track_dir: Path) -> dict:
                               "transpose": int(m["semitones"] or 0),
                               "source_offset": timing.get("source_offset"), "count_in": timing.get("count_in")})
     sheet = track_dir / "chords.html"
+    for g in garagebands:
+        project = track_dir / f"{g['folder']}.band"
+        if project.is_dir():
+            g["project"] = rel(project)
     # `garageband` (one folder) is what older players read; `garagebands` has the stems for every key.
     return {"stems": stems, "mixes": mixes, "garageband": garagebands[-1] if garagebands else None,
             "garagebands": garagebands,

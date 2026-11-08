@@ -2,6 +2,7 @@
   // The open song's mixes, one version (key and tempo) at a time: what it has, and what to make. It starts at
   // the version of the mix that's playing; which rows are ticked is remembered for every song.
   import { untrack } from 'svelte';
+  import { invoke } from '@tauri-apps/api/core';
   import { strings } from './i18n.svelte';
   import { keyShort } from './maker';
   import { maker, makeMixes } from './maker.svelte';
@@ -169,16 +170,22 @@
       </div>
     {/if}
 
-    <div class="row" class:is-made={made.garageband}>
+    <div class="row" class:is-made={!!made.garageband}>
       {#if made.garageband}
         <span class="tick" aria-hidden="true">✓</span>
       {:else}
-        <input type="checkbox" bind:checked={picks.garageband} aria-label={s.garageBandStems} />
+        <input type="checkbox" bind:checked={picks.garageband} aria-label={s.garageBandProject} />
       {/if}
-      <b>{s.garageBandStems}</b>
+      <b>{s.garageBandProject}</b>
       <span class="muted small">{s.garageBandRow}</span>
       {#if made.garageband}
-        <span class="made">{s.madeLabel}</span>
+        {@const project = made.garageband}
+        <span class="made">
+          {s.madeLabel} ·
+          <button class="link" onclick={() => invoke('open_in_garageband', { folder, project }).catch(() => {})}
+            >{s.openInGarageBand}</button
+          >
+        </span>
       {:else if picks.garageband}
         <span class="will">{s.willMake}</span>
       {:else}

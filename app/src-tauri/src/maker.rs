@@ -111,11 +111,12 @@ pub fn mix_args(folder: &str, choice: &MixChoice) -> Result<Vec<String>, String>
         if !choice.garageband {
             return Err("Choose at least one mix".into());
         }
-        // Only the stems: tempo and count-in don't apply to them.
+        // Only the GarageBand project: tempo and count-in don't apply to it.
         let mut args = vec!["garageband".to_string(), folder.to_string()];
         if choice.transpose != 0 {
             args.extend(["-k".into(), choice.transpose.to_string()]);
         }
+        args.push("--band".into());
         return Ok(args);
     }
     let mut args = vec!["mix".to_string(), folder.to_string()];
@@ -147,7 +148,7 @@ pub fn mix_args(folder: &str, choice: &MixChoice) -> Result<Vec<String>, String>
         bars => args.extend(["-c".into(), bars.to_string()]),
     }
     if choice.garageband {
-        args.push("--garageband".into());
+        args.extend(["--garageband".into(), "--band".into()]);
     }
     Ok(args)
 }
@@ -348,6 +349,27 @@ pub async fn make_mixes(app: AppHandle, folder: String, choice: MixChoice) -> Re
     crate::open_folder(&app, &folder)
 }
 
+/// A song's GarageBand project, from the path the song file gives it; nothing outside the song folder.
+pub fn project_path(folder: &str, project: &str) -> Result<PathBuf, String> {
+    let root = Path::new(folder).canonicalize().map_err(|e| format!("can't find {folder}: {e}"))?;
+    let path = root.join(project).canonicalize().map_err(|e| format!("can't find {project}: {e}"))?;
+    if !path.starts_with(&root) || path.extension().is_none_or(|e| e != "band") || !path.is_dir() {
+        return Err(format!("Not a GarageBand project of this song: {project}"));
+    }
+    Ok(path)
+}
+
+#[tauri::command]
+pub fn open_in_garageband(folder: String, project: String) -> Result<(), String> {
+    let path = project_path(&folder, &project)?;
+    std::process::Command::new("/usr/bin/open")
+        .args(["-a", "GarageBand"])
+        .arg(path)
+        .status()
+        .map_err(|e| format!("can't open GarageBand: {e}"))?;
+    Ok(())
+}
+
 #[tauri::command]
 pub fn cancel_make(maker: State<'_, Maker>) {
     maker.cancel();
@@ -388,7 +410,7 @@ mod tests {
         assert_eq!(
             mix_args("/lib/song", &c).unwrap(),
             ["mix", "/lib/song", "-p", "guide", "-p", "no-guitar", "-g", "guitar=-12", "-g", "piano=off", "--name",
-             "my-mix", "-k", "-2", "-t", "0.9", "--no-count-in", "--garageband"]
+             "my-mix", "-k", "-2", "-t", "0.9", "--no-count-in", "--garageband", "--band"]
         );
         let plain = choice(r#"{"presets":["original"],"custom":null,"transpose":0,"tempo":1,"count_in":2,"garageband":false}"#);
         assert_eq!(mix_args("/s", &plain).unwrap(), ["mix", "/s", "-p", "original", "-c", "2"]);
@@ -405,9 +427,21 @@ mod tests {
     }
 
     #[test]
+    fn only_a_garageband_project_inside_the_song_is_opened() {
+        let song = tempfile::tempdir().unwrap();
+        let project = song.path().join("mixes/s - GarageBand 120 BPM.band");
+        std::fs::create_dir_all(&project).unwrap();
+        let folder = song.path().to_str().unwrap();
+        assert_eq!(project_path(folder, "mixes/s - GarageBand 120 BPM.band").unwrap(), project.canonicalize().unwrap());
+        assert!(project_path(folder, "../elsewhere.band").is_err());
+        assert!(project_path(folder, "mixes").is_err());
+        assert!(project_path(folder, "mixes/missing.band").is_err());
+    }
+
+    #[test]
     fn garageband_stems_can_be_made_without_any_mix() {
         let only = choice(r#"{"presets":[],"custom":null,"transpose":-2,"tempo":0.8,"count_in":2,"garageband":true}"#);
-        assert_eq!(mix_args("/s", &only).unwrap(), ["garageband", "/s", "-k", "-2"]);
+        assert_eq!(mix_args("/s", &only).unwrap(), ["garageband", "/s", "-k", "-2", "--band"]);
     }
 
     #[test]

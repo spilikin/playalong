@@ -138,8 +138,13 @@ uv run playalong mix library/some-song --garageband
 also writes `mixes/<song> - GarageBand <tempo> BPM/` with one WAV per stem (intro cut, no count-in);
 `run` does this unless given `--no-garageband`. With `--transpose -2` the stems are transposed too and the
 folder ends in ` -2`.
-In GarageBand choose File > New > Empty Project, set the tempo shown, and drag all six files into
-the empty area below the tracks: each gets its own track, and the song's first beat sits on bar 2,
+`--band` (or `playalong garageband library/some-song -k -2 --band` for the stems and project alone)
+builds the GarageBand project from them: `mixes/<song> - GarageBand <tempo> BPM.band`, one track per
+stem, tempo and key set. Apple doesn't document the `.band` format, so GarageBand builds it: it opens
+for about half a minute, and the app or terminal running playalong needs Privacy & Security ›
+Accessibility. Leave the Mac alone meanwhile: macOS keeps GarageBand in the background while you work in
+another app. By hand: File > New > Empty Project, set the tempo shown, and drag all six files into the
+empty area below the tracks. Either way the song's first beat sits on bar 2,
 so GarageBand's metronome and count-in match the song. The stems share one gain, so the tracks
 at 0 dB add up to the original. GarageBand only takes whole-number tempi and bar lines are a guess
 (the beat is found, not which beat is the "one"), so on long or drifting songs the grid can wander a

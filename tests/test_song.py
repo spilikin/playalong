@@ -165,3 +165,13 @@ def test_every_garageband_folder_is_listed_one_per_key(tmp_path):
         {"folder": "mixes/s - GarageBand 120 BPM -2", "bpm": 120, "transpose": -2},
     ]
     assert files["garageband"] == files["garagebands"][-1]
+
+
+def test_a_garageband_project_is_listed_with_its_stems(tmp_path):
+    from playalong.song import _files
+
+    (tmp_path / "mixes" / "s - GarageBand 120 BPM -2").mkdir(parents=True)
+    (tmp_path / "mixes" / "s - GarageBand 120 BPM -2.band").mkdir()
+    (tmp_path / "mixes" / "s - GarageBand 120 BPM").mkdir()
+    gb = _files(tmp_path)["garagebands"]
+    assert [g.get("project") for g in gb] == [None, "mixes/s - GarageBand 120 BPM -2.band"]

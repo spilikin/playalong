@@ -243,11 +243,11 @@ describe('managing mixes', () => {
     expect(JSON.parse(localStorage.getItem('playalong.mixPicks')!).count_in).toBe(0);
   });
 
-  it('makes only the GarageBand stems', async () => {
+  it('makes only the GarageBand project', async () => {
     ipc.make_mixes = () => withNew;
     const page = await openPage();
     expect((page.getByRole('button', { name: 'Make' }) as HTMLButtonElement).disabled).toBe(true);
-    await fireEvent.click(page.getByRole('checkbox', { name: 'GarageBand stems' }));
+    await fireEvent.click(page.getByRole('checkbox', { name: 'GarageBand project' }));
     await fireEvent.click(page.getByRole('button', { name: 'Make 1' }));
     const choice = (calls.find((c) => c.cmd === 'make_mixes')?.args as { choice: unknown }).choice;
     expect(choice).toMatchObject({ presets: [], custom: null, garageband: true });
@@ -276,12 +276,24 @@ describe('managing mixes', () => {
     expect(screen.getByRole('button', { name: 'Edit', pressed: false })).toBeTruthy();
   });
 
+  it('opens a GarageBand project the version has', async () => {
+    const project = 'mixes/s - GarageBand 120 BPM.band';
+    openResult = {
+      ...opened,
+      song: { ...opened.song, garagebands: [{ folder: 'mixes/s - GarageBand 120 BPM', bpm: 120, transpose: 0, project }] },
+    };
+    const page = await openPage();
+    expect(page.queryByRole('checkbox', { name: 'GarageBand project' })).toBeNull();
+    await fireEvent.click(page.getByRole('button', { name: 'Open' }));
+    expect(calls.find((c) => c.cmd === 'open_in_garageband')?.args).toEqual({ folder: '/lib/kad-izdzisis', project });
+  });
+
   it('says why mixes could not be made', async () => {
     ipc.make_mixes = () => {
       throw 'Busy: making a song';
     };
     const page = await openPage();
-    await fireEvent.click(page.getByRole('checkbox', { name: 'GarageBand stems' }));
+    await fireEvent.click(page.getByRole('checkbox', { name: 'GarageBand project' }));
     await fireEvent.click(page.getByRole('button', { name: 'Make 1' }));
     expect(await screen.findByText('Busy: making a song')).toBeTruthy();
   });
