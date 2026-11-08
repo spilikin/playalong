@@ -227,8 +227,11 @@ On first start it offers to download the audio tools (the [portable runtime](#po
 separation model, about 490 MB, 1.5 GB unpacked, into `~/Library/Application Support/dev.playalong`;
 downloads in progress and caches go to `~/Library/Caches/dev.playalong`).
 After that it opens on the **Library**, the songs in `~/Music/Playalong`: paste a YouTube link (or drop
-or choose an audio file), pick a key, **Make song**, and it runs the CLI's `run` and opens the song when
-it's done. Songs made elsewhere open with **Open folder…** or by dropping a folder on the window.
+or choose an audio file) and **Make song**: it downloads the song, splits it into instruments, finds the
+chords and makes the original mix, then opens it. Other mixes are made on request in the player with
+**+ New mixes…**: presets, your own instrument levels, another key or tempo, count-in and GarageBand
+stems. The panel starts from whatever you chose last time. Songs made elsewhere open with
+**Open folder…** or by dropping a folder on the window.
 
 ### Updates
 

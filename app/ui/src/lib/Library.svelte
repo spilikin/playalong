@@ -15,7 +15,6 @@
   const s = $derived(strings());
   let query = $state('');
   let source = $state('');
-  let transpose = $state(0);
   let details = $state(false);
 
   const shown = $derived(maker.songs.filter((song) => matches(song, query)));
@@ -61,7 +60,7 @@
     event.preventDefault();
     if (!source.trim() || job?.running) return;
     details = false;
-    void makeSong(source, transpose);
+    void makeSong(source);
     source = '';
   }
 
@@ -89,11 +88,6 @@
       autocomplete="off"
     />
     <button type="button" onclick={chooseFile}>{s.file}</button>
-    <div class="stepper">
-      <button type="button" aria-label={s.keyDown} onclick={() => (transpose = Math.max(-12, transpose - 1))} disabled={transpose <= -12}>−</button>
-      <span>{s.keyChange(transposeLabel(transpose, s))}</span>
-      <button type="button" aria-label={s.keyUp} onclick={() => (transpose = Math.min(12, transpose + 1))} disabled={transpose >= 12}>+</button>
-    </div>
     <button class="primary" type="submit" disabled={!source.trim() || job?.running}>{s.makeSong}</button>
   </form>
   {#if error}<p class="error banner" role="alert">{error}</p>{/if}
@@ -116,7 +110,7 @@
           <div class="job-what">
             <b>{job.running ? s.making : job.error ? job.error : s.done}</b>
             <span class="muted small">
-              {shortSource(job.source)}{job.transpose ? ` · ${transposeLabel(job.transpose, s)}` : ''}
+              {shortSource(job.source)}
               {#if job.running}· {where} · {s.opensWhenDone}{/if}
             </span>
             {#if job.running && !details}
@@ -251,24 +245,6 @@
     border: 1px solid var(--hairline);
     background: var(--bg);
     color: var(--ink);
-  }
-  .stepper {
-    display: flex;
-    align-items: center;
-    border: 1px solid var(--hairline);
-    border-radius: 8px;
-    background: var(--bg);
-  }
-  .stepper button {
-    border: 0;
-    background: none;
-    width: 30px;
-    padding: 6px 0;
-  }
-  .stepper span {
-    min-width: 116px;
-    text-align: center;
-    font-size: 13px;
   }
   button:disabled {
     opacity: 0.45;

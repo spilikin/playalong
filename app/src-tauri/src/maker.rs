@@ -9,7 +9,9 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime};
 
-use serde::Serialize;
+use std::collections::BTreeMap;
+
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::runtime::{self, Installed, Plan};
@@ -80,12 +82,66 @@ impl Drop for Busy<'_> {
     }
 }
 
-pub fn cli_args(source: &str, library: &str, transpose: i32) -> Vec<String> {
-    let mut args = vec!["-l".to_string(), library.to_string(), "run".to_string(), source.to_string()];
-    if transpose != 0 {
-        args.extend(["-k".to_string(), transpose.to_string()]);
+/// A new song: download, cover, instruments, chords and only the original mix; the rest is made on request.
+pub fn cli_args(source: &str, library: &str) -> Vec<String> {
+    ["-l", library, "run", source, "-p", "original", "--no-garageband"].map(String::from).to_vec()
+}
+
+const PRESETS: [&str; 8] =
+    ["original", "guide", "no-guitar", "vocals-only", "backing", "rhythm-section", "drums-only", "guitar-only"];
+const STEMS: [&str; 6] = ["vocals", "guitar", "bass", "drums", "piano", "other"];
+const CUSTOM_NAME: &str = "my-mix";
+
+/// The mixes to make, as chosen in the player's panel.
+#[derive(Deserialize)]
+pub struct MixChoice {
+    presets: Vec<String>,
+    /// The person's own mix: dB per instrument, `None` for off; instruments left out stay as recorded.
+    custom: Option<BTreeMap<String, Option<f64>>>,
+    transpose: i32,
+    tempo: f64,
+    count_in: u8,
+    garageband: bool,
+}
+
+/// `playalong mix` for a song folder. Names come from the web view, so only known presets and instruments
+/// pass: anything else could be taken for an option.
+pub fn mix_args(folder: &str, choice: &MixChoice) -> Result<Vec<String>, String> {
+    if choice.presets.is_empty() && choice.custom.is_none() {
+        return Err("Choose at least one mix".into());
     }
-    args
+    let mut args = vec!["mix".to_string(), folder.to_string()];
+    for preset in &choice.presets {
+        if !PRESETS.contains(&preset.as_str()) {
+            return Err(format!("Unknown mix: {preset}"));
+        }
+        args.extend(["-p".into(), preset.clone()]);
+    }
+    if let Some(custom) = &choice.custom {
+        for (stem, gain) in custom {
+            if !STEMS.contains(&stem.as_str()) {
+                return Err(format!("Unknown instrument: {stem}"));
+            }
+            let level = gain.map_or("off".to_string(), |db| db.to_string());
+            args.extend(["-g".into(), format!("{stem}={level}")]);
+        }
+        args.extend(["--name".into(), CUSTOM_NAME.into()]);
+    }
+    if choice.transpose != 0 {
+        args.extend(["-k".into(), choice.transpose.to_string()]);
+    }
+    if choice.tempo != 1.0 {
+        args.extend(["-t".into(), choice.tempo.to_string()]);
+    }
+    match choice.count_in {
+        0 => args.push("--no-count-in".into()),
+        1 => {}
+        bars => args.extend(["-c".into(), bars.to_string()]),
+    }
+    if choice.garageband {
+        args.push("--garageband".into());
+    }
+    Ok(args)
 }
 
 pub fn is_url(source: &str) -> bool {
@@ -194,7 +250,7 @@ struct Line {
 }
 
 #[tauri::command]
-pub async fn make_song(app: AppHandle, source: String, library: String, transpose: i32) -> Result<OpenedSong, String> {
+pub async fn make_song(app: AppHandle, source: String, library: String) -> Result<OpenedSong, String> {
     let root = root(&app)?;
     let code = code(&app)?;
     let cache = cache(&app)?;
@@ -222,7 +278,7 @@ pub async fn make_song(app: AppHandle, source: String, library: String, transpos
             update_downloader();
             updated = true;
         }
-        let args = cli_args(&source, &library, transpose);
+        let args = cli_args(&source, &library);
         let mut done = None;
         let mut run = || {
             maker.run_cli(&runtime_dir, &args, &env, |line| {
@@ -254,6 +310,36 @@ pub async fn make_song(app: AppHandle, source: String, library: String, transpos
     crate::open_folder(&app, &folder.to_string_lossy())
 }
 
+/// More mixes for a song, made in the background while it plays; returns the song with them.
+#[tauri::command]
+pub async fn make_mixes(app: AppHandle, folder: String, choice: MixChoice) -> Result<OpenedSong, String> {
+    let args = mix_args(&folder, &choice)?;
+    let root = root(&app)?;
+    let code = code(&app)?;
+    let cache = cache(&app)?;
+    let handle = app.clone();
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let maker = handle.state::<Maker>();
+        let _busy = maker.begin("making mixes")?;
+        maker.stopped.store(false, Ordering::SeqCst);
+        let runtime_dir = root.join("runtime");
+        if runtime::installed(&runtime_dir).is_none() {
+            return Err("The runtime isn't set up yet".into());
+        }
+        let env = [("PLAYALONG_CODE", code.as_path()), ("PLAYALONG_CACHE", cache.as_path())];
+        let result = maker.run_cli(&runtime_dir, &args, &env, |line| {
+            let _ = handle.emit("make-mixes-line", Line { line: line.to_string() });
+        });
+        if maker.is_stopped() {
+            return Err("Stopped".into());
+        }
+        result
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    crate::open_folder(&app, &folder)
+}
+
 #[tauri::command]
 pub fn cancel_make(maker: State<'_, Maker>) {
     maker.cancel();
@@ -279,9 +365,35 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_cli_gets_the_library_source_and_transposition() {
-        assert_eq!(cli_args("https://y/x", "/lib", -2), ["-l", "/lib", "run", "https://y/x", "-k", "-2"]);
-        assert_eq!(cli_args("/a.wav", "/lib", 0), ["-l", "/lib", "run", "/a.wav"]);
+    fn a_new_song_gets_its_instruments_chords_and_only_the_original() {
+        assert_eq!(cli_args("https://y/x", "/lib"), ["-l", "/lib", "run", "https://y/x", "-p", "original", "--no-garageband"]);
+    }
+
+    fn choice(json: &str) -> MixChoice {
+        serde_json::from_str(json).unwrap()
+    }
+
+    #[test]
+    fn mixes_are_made_as_chosen() {
+        let c = choice(r#"{"presets":["guide","no-guitar"],"custom":{"guitar":-12,"piano":null},
+            "transpose":-2,"tempo":0.9,"count_in":0,"garageband":true}"#);
+        assert_eq!(
+            mix_args("/lib/song", &c).unwrap(),
+            ["mix", "/lib/song", "-p", "guide", "-p", "no-guitar", "-g", "guitar=-12", "-g", "piano=off", "--name",
+             "my-mix", "-k", "-2", "-t", "0.9", "--no-count-in", "--garageband"]
+        );
+        let plain = choice(r#"{"presets":["original"],"custom":null,"transpose":0,"tempo":1,"count_in":2,"garageband":false}"#);
+        assert_eq!(mix_args("/s", &plain).unwrap(), ["mix", "/s", "-p", "original", "-c", "2"]);
+    }
+
+    #[test]
+    fn only_known_mixes_and_instruments_reach_the_cli() {
+        let none = choice(r#"{"presets":[],"custom":null,"transpose":0,"tempo":1,"count_in":1,"garageband":false}"#);
+        assert!(mix_args("/s", &none).is_err());
+        let odd = choice(r#"{"presets":["--all"],"custom":null,"transpose":0,"tempo":1,"count_in":1,"garageband":false}"#);
+        assert!(mix_args("/s", &odd).is_err());
+        let stem = choice(r#"{"presets":[],"custom":{"kazoo":0},"transpose":0,"tempo":1,"count_in":1,"garageband":false}"#);
+        assert!(mix_args("/s", &stem).is_err());
     }
 
     #[test]

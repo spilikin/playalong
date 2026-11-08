@@ -8,13 +8,15 @@
   import CountIn from '$lib/CountIn.svelte';
   import Library from '$lib/Library.svelte';
   import MakingCard from '$lib/MakingCard.svelte';
+  import MixesCard from '$lib/MixesCard.svelte';
+  import MixPanel from '$lib/MixPanel.svelte';
   import MixIcon from '$lib/MixIcon.svelte';
   import ThemeToggle from '$lib/ThemeToggle.svelte';
   import AppUpdate from '$lib/AppUpdate.svelte';
   import { checkAppUpdate } from '$lib/selfUpdate.svelte';
   import Welcome from '$lib/Welcome.svelte';
   import Wordmark from '$lib/Wordmark.svelte';
-  import { clearJob, maker, refreshLibrary, startMaker } from '$lib/maker.svelte';
+  import { clearJob, clearMixJob, maker, refreshLibrary, startMaker } from '$lib/maker.svelte';
   import { strings } from '$lib/i18n.svelte';
   import {
     chordIndexAt,
@@ -46,6 +48,7 @@
   let dropping = $state(false);
   let recents = $state<string[]>(loadRecents());
   let scroller = $state<HTMLElement>();
+  let mixing = $state(false);
   // Song time to resume at once a newly chosen mix has loaded, so switching mixes keeps your place.
   let resumeAt: number | null = null;
 
@@ -93,6 +96,7 @@
       const result = await invoke<OpenedSong>('open_song', { path });
       audio?.pause();
       opened = result;
+      mixing = false;
       mix = defaultMix(result.song.mixes);
       mixSeconds = 0;
       resumeAt = null;
@@ -106,6 +110,7 @@
   function toLibrary() {
     audio?.pause();
     opened = null;
+    mixing = false;
     error = '';
     void refreshLibrary();
   }
@@ -116,6 +121,17 @@
     if (made && !opened) {
       clearJob();
       void openPath(made.folder);
+    }
+  });
+
+  // New mixes for the open song join its list without interrupting what's playing.
+  $effect(() => {
+    const made = maker.mixJob?.made;
+    if (made && opened && made.folder === opened.folder) {
+      const playing = mix?.file;
+      opened = made;
+      mix = made.song.mixes.find((m) => m.file === playing) ?? defaultMix(made.song.mixes);
+      clearMixJob();
     }
   });
 
@@ -306,10 +322,17 @@
           {@render mixButton(m, mixBlurb(m, s))}
         {/each}
       {/if}
+      {#if maker.installed}
+        <button class="new-mixes" aria-expanded={mixing} onclick={() => (mixing = !mixing)}>{s.newMixesButton}</button>
+      {/if}
+      <MixesCard openFolder={opened.folder} onOpen={openPath} />
       <MakingCard onOpen={openPath} />
       <div class="foot"><Wordmark /></div>
     </nav>
 
+    {#if mixing}
+      <MixPanel folder={opened.folder} onClose={() => (mixing = false)} />
+    {/if}
     <div class="main">
       {#if error}<p class="error banner" role="alert">{error}</p>{/if}
       {#if !song.mixes.length}
@@ -545,6 +568,16 @@
   }
   .tray h2.more {
     margin-top: 14px;
+  }
+  .new-mixes {
+    margin-top: 10px;
+    text-align: left;
+    padding: 7px 8px;
+    border-radius: 8px;
+    border: 1px dashed var(--accent);
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-weight: 600;
   }
   .foot {
     margin-top: auto;

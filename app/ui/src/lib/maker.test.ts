@@ -81,9 +81,10 @@ describe('progress while making a song', () => {
     expect(progressOf(lines)).toMatchObject({ step: 3, share: 0.25, left: 150 });
   });
 
-  it('counts the mixes as they are written', () => {
+  it('finishes the mix step once the original is written', () => {
+    expect(progressOf(['3/5 Separate', '4/5 Mix', 'Writing mixes for x:'])).toMatchObject({ step: 4, share: 0 });
     const p = progressOf(['3/5 Separate', '4/5 Mix', 'Writing mixes for x:', '  /m/x/mixes/x - original.mp3']);
-    expect(p).toMatchObject({ step: 4, share: 0.25 });
+    expect(p).toMatchObject({ step: 4, share: 1 });
   });
 
   it('adds up to one bar for the whole song, weighted by how long each step takes', () => {

@@ -70,8 +70,9 @@ export interface SongProgress {
 }
 
 // Roughly how the time splits for a typical song on Apple Silicon: splitting into instruments dominates.
-const STEP_WEIGHTS = [0.08, 0.02, 0.7, 0.15, 0.05];
-const MIXES_MADE = 4;
+const STEP_WEIGHTS = [0.1, 0.02, 0.8, 0.03, 0.05];
+// A new song gets only its original mix; the others are made on request in the player.
+const MIXES_MADE = 1;
 
 const lastNumber = (lines: string[], pattern: RegExp) => {
   for (let i = lines.length - 1; i >= 0; i--) {

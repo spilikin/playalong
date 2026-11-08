@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { clearMocks, mockIPC, mockWindows } from '@tauri-apps/api/mocks';
 import { opened } from '$lib/fixture';
 import { maker } from '$lib/maker.svelte';
@@ -14,7 +14,7 @@ beforeEach(() => {
   calls = [];
   openResult = opened;
   ipc = {};
-  Object.assign(maker, { ready: false, installed: null, check: null, songs: [], job: null, error: '', draft: '' });
+  Object.assign(maker, { ready: false, installed: null, check: null, songs: [], job: null, mixJob: null, error: '', draft: '' });
   localStorage.clear();
   mockWindows('main');
   mockIPC((cmd, args) => {
@@ -166,22 +166,19 @@ describe('library', () => {
     expect(calls.find((c) => c.cmd === 'open_song')?.args).toEqual({ path: '/m/Playalong/kad' });
   });
 
-  it('makes a song from a link in another key and opens it when done', async () => {
+  it('makes a song from a link and opens it when done; keys and mixes come later, in the player', async () => {
     withTools();
     ipc.make_song = () => opened;
     render(Page);
     await fireEvent.input(await screen.findByRole('textbox', { name: 'YouTube link or audio file' }), {
       target: { value: 'https://youtu.be/x' },
     });
-    await fireEvent.click(screen.getByRole('button', { name: 'Down a semitone' }));
-    await fireEvent.click(screen.getByRole('button', { name: 'Down a semitone' }));
-    expect(screen.getByText('Key: −2')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Down a semitone' })).toBeNull();
     await fireEvent.click(screen.getByRole('button', { name: 'Make song' }));
     expect(await screen.findByRole('heading', { name: 'Kad izdzisīs' })).toBeTruthy();
     expect(calls.find((c) => c.cmd === 'make_song')?.args).toEqual({
       source: 'https://youtu.be/x',
       library: '/m/Playalong',
-      transpose: -2,
     });
   });
 
@@ -204,5 +201,70 @@ describe('library', () => {
     });
     await fireEvent.click(screen.getByRole('button', { name: 'Make song' }));
     expect(await screen.findByText('ERROR: Video unavailable')).toBeTruthy();
+  });
+});
+
+describe('new mixes', () => {
+  const installed = { version: '2026.11.08', series: 1, commit: 'abc', model: 'sw' };
+  const withNew = {
+    ...opened,
+    song: {
+      ...opened.song,
+      mixes: [...opened.song.mixes, { ...opened.song.mixes[0], file: 'mixes/s - guide -2.mp3', name: 'guide', transpose: -2 }],
+    },
+  };
+
+  async function openPanel() {
+    ipc.runtime_status = () => ({ installed, busy: false });
+    ipc.default_library = () => '/m/Playalong';
+    ipc.list_library = () => [];
+    render(Page);
+    await fireEvent.click(await screen.findByRole('button', { name: 'Open folder…' }));
+    await fireEvent.click(await screen.findByRole('button', { name: '+ New mixes…' }));
+    return screen.findByRole('region', { name: 'New mixes' });
+  }
+
+  it('starts from the last choice, makes the mixes and lists them in the player', async () => {
+    localStorage.setItem('playalong.mixChoice', JSON.stringify({ presets: ['guide', 'vocals-only'] }));
+    ipc.make_mixes = () => withNew;
+    const panel = within(await openPanel());
+    expect(panel.getByRole('button', { name: 'Guide', pressed: true })).toBeTruthy();
+    await fireEvent.click(panel.getByRole('button', { name: 'Vocals only', pressed: true }));
+    await fireEvent.click(panel.getByRole('button', { name: 'Down a semitone' }));
+    await fireEvent.click(panel.getByRole('button', { name: 'Down a semitone' }));
+    await fireEvent.click(panel.getByRole('radio', { name: 'Off' }));
+    expect(panel.getByText('Guide −2')).toBeTruthy();
+    await fireEvent.click(panel.getByRole('button', { name: 'Make 1 mix' }));
+
+    expect(calls.find((c) => c.cmd === 'make_mixes')?.args).toEqual({
+      folder: '/lib/kad-izdzisis',
+      choice: { presets: ['guide'], custom: null, transpose: -2, tempo: 1, count_in: 0, garageband: false },
+    });
+    expect(await screen.findByRole('button', { name: /Guide · −2/ })).toBeTruthy();
+    expect(JSON.parse(localStorage.getItem('playalong.mixChoice')!).transpose).toBe(-2);
+  });
+
+  it('makes your own mix from instrument levels', async () => {
+    ipc.make_mixes = () => withNew;
+    const panel = within(await openPanel());
+    for (const name of ['Guide', 'No guitar', 'Vocals only']) {
+      await fireEvent.click(panel.getByRole('button', { name, pressed: true }));
+    }
+    await fireEvent.click(panel.getByRole('button', { name: 'My mix', pressed: false }));
+    await fireEvent.input(panel.getByRole('slider', { name: 'Guitar' }), { target: { value: '-12' } });
+    await fireEvent.input(panel.getByRole('slider', { name: 'Piano' }), { target: { value: '-25' } });
+    expect(panel.getByText('off')).toBeTruthy();
+    await fireEvent.click(panel.getByRole('button', { name: 'Make 1 mix' }));
+    const choice = (calls.find((c) => c.cmd === 'make_mixes')?.args as { choice: { custom: unknown } }).choice;
+    expect(choice.custom).toEqual({ vocals: 0, guitar: -12, bass: 0, drums: 0, piano: null, other: 0 });
+  });
+
+  it('says why mixes could not be made', async () => {
+    ipc.make_mixes = () => {
+      throw 'Busy: making a song';
+    };
+    const panel = within(await openPanel());
+    await fireEvent.click(panel.getByRole('button', { name: 'Make 3 mixes' }));
+    expect(await screen.findByText('Busy: making a song')).toBeTruthy();
   });
 });

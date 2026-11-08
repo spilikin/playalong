@@ -44,7 +44,7 @@ describe('app update', () => {
 
   it('waits with the restart while a song is being made', async () => {
     appUpdate.ready = '0.2.0';
-    maker.job = { source: 'x', transpose: 0, lines: [], running: true, error: '', made: null };
+    maker.job = { source: 'x', lines: [], running: true, error: '', made: null };
     render(AppUpdate);
     expect(screen.queryByRole('button')).toBeNull();
   });
