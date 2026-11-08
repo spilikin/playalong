@@ -1,15 +1,14 @@
 <script lang="ts">
-  import { relaunch } from '@tauri-apps/plugin-process';
   import { strings } from './i18n.svelte';
-  import { appUpdate } from './selfUpdate.svelte';
+  import { appUpdate, restartToUpdate } from './selfUpdate.svelte';
   import { maker } from './maker.svelte';
 
   const s = $derived(strings());
 </script>
 
-<!-- A restart would stop the song being made, so the offer waits until it's done. -->
-{#if appUpdate.ready && !maker.job?.running}
-  <button class="pill" title={s.appUpdateTitle(appUpdate.ready)} onclick={() => relaunch()}>{s.appUpdate}</button>
+<!-- A restart would stop the song being made or the tools being installed, so the offer waits. -->
+{#if appUpdate.ready && !maker.job?.running && !maker.installing}
+  <button class="pill" title={s.appUpdateTitle(appUpdate.ready)} onclick={restartToUpdate}>{s.appUpdate}</button>
 {/if}
 
 <style>

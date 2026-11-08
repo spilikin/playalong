@@ -50,7 +50,8 @@
     "macOS": {
       "files": {
         "Resources/Assets.car": "icons/Assets.car"
-      }
+      },
+      "signingIdentity": "-"
     },
     "icon": [
       "icons/32x32.png",

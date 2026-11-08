@@ -31,6 +31,8 @@ export TAURI_SIGNING_PRIVATE_KEY_PASSWORD
 (cd "$app" && ui/node_modules/.bin/tauri build)
 
 bundle="$app/target/release/bundle/macos"
+# A bundle whose signature doesn't verify opens as "damaged" once downloaded, with no way past it.
+codesign --verify --deep --strict "$bundle/Playalong.app"
 out="$app/target/release/publish"
 rm -rf "$out" && mkdir -p "$out"
 # The updater takes the .tar.gz; people downloading the app by hand get a zip, which Finder opens.

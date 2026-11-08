@@ -42,6 +42,36 @@ impl Maker {
     fn running(&self) -> bool {
         self.busy.lock().unwrap().is_some()
     }
+
+    fn is_stopped(&self) -> bool {
+        self.stopped.load(Ordering::SeqCst)
+    }
+
+    /// Stop the song being made: the step running now ends, and no later step starts.
+    pub fn cancel(&self) {
+        self.stopped.store(true, Ordering::SeqCst);
+        if let Some(pid) = *self.child.lock().unwrap() {
+            runtime::stop(pid);
+        }
+    }
+
+    /// One CLI run for the song being made (yt-dlp check, the song, a retry). Its pid is known to `cancel`
+    /// for exactly as long as it runs; a Stop that lands just before it starts still ends it.
+    fn run_cli(&self, runtime_dir: &Path, args: &[String], env: &[(&str, &Path)], line: impl FnMut(&str)) -> Result<(), String> {
+        if self.is_stopped() {
+            return Err("Stopped".into());
+        }
+        let started = |pid| {
+            let mut child = self.child.lock().unwrap();
+            *child = Some(pid);
+            if self.is_stopped() {
+                runtime::stop(pid);
+            }
+        };
+        let result = runtime::run_cli(runtime_dir, args, env, started, line);
+        *self.child.lock().unwrap() = None;
+        result
+    }
 }
 
 impl Drop for Busy<'_> {
@@ -126,10 +156,9 @@ pub async fn runtime_install(app: AppHandle) -> Result<Option<Installed>, String
         let current = root.join("runtime");
         let manifest = runtime::fetch_manifest(runtime::MANIFEST_URL)?;
         let plan = runtime::plan(runtime::installed(&current).as_ref(), &manifest)?;
-        let downloads = root.join("downloads");
-        std::fs::create_dir_all(&downloads).map_err(|e| format!("can't create {}: {e}", downloads.display()))?;
+        let downloads = runtime::Downloads::new(&root)?;
         let fetched = |stage: &'static str, archive: &runtime::Archive| -> Result<PathBuf, String> {
-            let to = downloads.join(&archive.file);
+            let to = downloads.path().join(&archive.file);
             let total = archive.size;
             runtime::fetch(archive, &to, |done| {
                 let _ = app.emit("runtime-progress", Progress { stage, done, total });
@@ -139,9 +168,7 @@ pub async fn runtime_install(app: AppHandle) -> Result<Option<Installed>, String
         let runtime_file = plan.runtime.as_ref().map(|a| fetched("runtime", a)).transpose()?;
         let model_file = plan.model.as_ref().map(|a| fetched("model", a)).transpose()?;
         let _ = app.emit("runtime-progress", Progress { stage: "unpack", done: 0, total: 0 });
-        let result = runtime::install(&root, runtime_file.as_deref(), model_file.as_deref());
-        let _ = std::fs::remove_dir_all(&downloads);
-        result?;
+        runtime::install(&root, runtime_file.as_deref(), model_file.as_deref())?;
         Ok(runtime::installed(&current))
     })
     .await
@@ -176,7 +203,7 @@ pub async fn make_song(app: AppHandle, source: String, library: String, transpos
         let env = [("PLAYALONG_CODE", code.as_path())];
         let update_downloader = || {
             emit("Checking for a newer YouTube downloader");
-            let _ = runtime::run_cli(&runtime_dir, &["update-downloader".to_string()], &env, |_| {}, emit);
+            let _ = maker.run_cli(&runtime_dir, &["update-downloader".to_string()], &env, emit);
             let _ = std::fs::write(root.join(DOWNLOADER_STAMP), b"");
         };
         let youtube = is_url(&source);
@@ -188,8 +215,7 @@ pub async fn make_song(app: AppHandle, source: String, library: String, transpos
         let args = cli_args(&source, &library, transpose);
         let mut done = None;
         let mut run = || {
-            let started = |pid| *maker.child.lock().unwrap() = Some(pid);
-            runtime::run_cli(&runtime_dir, &args, &env, started, |line| {
+            maker.run_cli(&runtime_dir, &args, &env, |line| {
                 if let Some(folder) = runtime::finished_folder(line) {
                     done = Some(folder);
                 }
@@ -197,9 +223,8 @@ pub async fn make_song(app: AppHandle, source: String, library: String, transpos
             })
         };
         let mut result = run();
-        let stopped = || maker.stopped.load(Ordering::SeqCst);
         if let Err(reason) = &result
-            && !stopped()
+            && !maker.is_stopped()
             && youtube
             && !updated
             && worth_new_downloader(reason)
@@ -208,8 +233,7 @@ pub async fn make_song(app: AppHandle, source: String, library: String, transpos
             update_downloader();
             result = run();
         }
-        *maker.child.lock().unwrap() = None;
-        if stopped() {
+        if maker.is_stopped() {
             return Err("Stopped".into());
         }
         result?;
@@ -222,10 +246,7 @@ pub async fn make_song(app: AppHandle, source: String, library: String, transpos
 
 #[tauri::command]
 pub fn cancel_make(maker: State<'_, Maker>) {
-    maker.stopped.store(true, Ordering::SeqCst);
-    if let Some(pid) = *maker.child.lock().unwrap() {
-        runtime::stop(pid);
-    }
+    maker.cancel();
 }
 
 /// `~/Music/Playalong`, where the app keeps the songs it makes.
@@ -274,5 +295,43 @@ mod tests {
         assert_eq!(maker.begin("making a song").err().unwrap(), "Busy: setting up the runtime");
         drop(install);
         assert!(maker.begin("making a song").is_ok());
+    }
+
+    fn sleeper(dir: &Path) {
+        let bin = dir.join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let script = bin.join("playalong");
+        std::fs::write(&script, "#!/bin/sh\necho started\nexec sleep 30\n").unwrap();
+        std::fs::set_permissions(&script, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    }
+
+    #[test]
+    fn after_stop_no_further_step_starts() {
+        let dir = tempfile::tempdir().unwrap();
+        sleeper(dir.path());
+        let maker = Maker::default();
+        maker.cancel();
+        let mut lines = 0;
+        assert_eq!(maker.run_cli(dir.path(), &[], &[], |_| lines += 1).unwrap_err(), "Stopped");
+        assert_eq!(lines, 0);
+    }
+
+    #[test]
+    fn stop_ends_whichever_step_is_running() {
+        let dir = tempfile::tempdir().unwrap();
+        sleeper(dir.path());
+        let maker = Maker::default();
+        let begun = std::time::Instant::now();
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                while maker.child.lock().unwrap().is_none() {
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+                maker.cancel();
+            });
+            assert!(maker.run_cli(dir.path(), &[], &[], |_| {}).is_err());
+        });
+        assert!(begun.elapsed().as_secs() < 10);
+        assert!(maker.child.lock().unwrap().is_none(), "a finished step leaves no process id to stop");
     }
 }

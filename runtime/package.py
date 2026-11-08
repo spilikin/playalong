@@ -46,13 +46,25 @@ def _tree_size(root: Path) -> int:
     return sum(p.lstat().st_size for p in root.rglob("*") if not p.is_dir())
 
 
+# Fixed times and owners in the archive: build.py recreates the folders on every build, and an unchanged
+# model has to pack to the digest that's already published.
+PACKED_AT = 1_767_225_600  # 2026-01-01
+
+
+def _normalised(info: tarfile.TarInfo) -> tarfile.TarInfo:
+    info.mtime = PACKED_AT
+    info.uid = info.gid = 0
+    info.uname = info.gname = ""
+    return info
+
+
 def pack(source: Path, members: list[Path], dest: Path) -> None:
     """tar | zstd -19: about a sixth of the size for the runtime, half for the model."""
     print(f"Packing {dest.name}")
     with subprocess.Popen(["zstd", "-q", "-19", "-T0", "-f", "-o", str(dest)], stdin=subprocess.PIPE) as z:
         with tarfile.open(fileobj=z.stdin, mode="w|", format=tarfile.PAX_FORMAT) as tar:
             for m in members:
-                tar.add(m, arcname=m.relative_to(source).as_posix())
+                tar.add(m, arcname=m.relative_to(source).as_posix(), filter=_normalised)
         z.stdin.close()
     if z.returncode:
         raise SystemExit(f"zstd failed for {dest.name}")

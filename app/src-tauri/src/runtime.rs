@@ -9,6 +9,7 @@ use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -219,17 +220,48 @@ fn install_model(runtime: &Path, model: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// Where archives wait to be unpacked. Leftovers of an earlier attempt go first, and the folder goes when
+/// this is dropped, so a failed or interrupted download can't keep hundreds of MB (or a full disk) around.
+pub struct Downloads(PathBuf);
+
+impl Downloads {
+    pub fn new(root: &Path) -> Result<Downloads, String> {
+        let dir = root.join("downloads");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).map_err(|e| format!("can't create {}: {e}", dir.display()))?;
+        Ok(Downloads(dir))
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for Downloads {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+/// A connection that stops sending gives up, so setting up can't hang until the app is restarted. The
+/// blocking client applies its timeout to each wait (the response, then every read of the body), not to
+/// the whole download, which takes minutes for the model on a slow line.
+const STALL: Duration = Duration::from_secs(60);
+
+fn http(stall: Duration) -> reqwest::Result<reqwest::blocking::Client> {
+    reqwest::blocking::Client::builder().connect_timeout(Duration::from_secs(30)).timeout(stall).build()
+}
+
 pub fn fetch_manifest(url: &str) -> Result<Manifest, String> {
-    let response = reqwest::blocking::get(url)
+    let response = http(STALL)
+        .and_then(|c| c.get(url).send())
         .and_then(|r| r.error_for_status())
         .map_err(|e| format!("can't reach the runtime download: {e}"))?;
     Manifest::parse(&response.text().map_err(|e| format!("can't read the runtime manifest: {e}"))?)
 }
 
 pub fn fetch(archive: &Archive, to: &Path, progress: impl FnMut(u64)) -> Result<(), String> {
-    let response = reqwest::blocking::Client::builder()
-        .timeout(None)
-        .build()
+    let response = http(STALL)
         .and_then(|c| c.get(&archive.url).send())
         .and_then(|r| r.error_for_status())
         .map_err(|e| format!("can't download {}: {e}", archive.file))?;
@@ -454,5 +486,32 @@ mod tests {
         assert_eq!(lines, ["one", "10%", "20%", "Done: /lib/song"]);
         assert_eq!(finished_folder(&lines[3]), Some(PathBuf::from("/lib/song")));
         assert_eq!(run_cli(dir.path(), &["fail".into()], &[], |_| {}, |_| {}).unwrap_err(), "No such video");
+    }
+
+    #[test]
+    fn downloads_never_outlive_an_install() {
+        let dir = tempfile::tempdir().unwrap();
+        let leftover = dir.path().join("downloads").join("half.tar.zst");
+        fs::create_dir_all(leftover.parent().unwrap()).unwrap();
+        fs::write(&leftover, b"half").unwrap();
+        let downloads = Downloads::new(dir.path()).unwrap();
+        assert!(!leftover.exists(), "an earlier failed download is cleared");
+        fs::write(downloads.path().join("rt.tar.zst"), b"x").unwrap();
+        drop(downloads);
+        assert!(!dir.path().join("downloads").exists(), "and this one too, however the install ends");
+    }
+
+    #[test]
+    fn a_stalled_download_gives_up_instead_of_hanging() {
+        let server = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = server.local_addr().unwrap();
+        std::thread::spawn(move || {
+            let held: Vec<_> = server.incoming().take(1).collect();
+            std::thread::sleep(std::time::Duration::from_secs(30));
+            drop(held);
+        });
+        let begun = std::time::Instant::now();
+        let result = http(std::time::Duration::from_millis(300)).unwrap().get(format!("http://{address}/rt")).send();
+        assert!(result.is_err() && begun.elapsed().as_secs() < 5);
     }
 }

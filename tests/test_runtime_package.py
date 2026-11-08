@@ -59,3 +59,17 @@ def test_manifest_names_both_archives_with_checksums(tmp_path, monkeypatch):
 
     first = model["sha256"]
     assert package.build()["model"]["sha256"] == first  # the same files pack the same way
+
+
+def test_a_rebuilt_model_packs_to_the_same_archive(tmp_path, monkeypatch):
+    package = load_package()
+    rt = fake_runtime(tmp_path)
+    monkeypatch.setattr(package, "RUNTIME", rt)
+    monkeypatch.setattr(package, "OUT", tmp_path / "release")
+    first = package.build()["model"]["sha256"]
+
+    # build.py recreates the folders every time, so only their times and owners change.
+    import os
+    for p in (rt / "models", rt / "models" / "sw", rt / "models" / "sw" / "w.ckpt"):
+        os.utime(p, (1_900_000_000, 1_900_000_000))
+    assert package.build()["model"]["sha256"] == first
