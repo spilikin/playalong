@@ -1,4 +1,5 @@
 import json
+import os
 import plistlib
 import re
 import subprocess
@@ -74,9 +75,15 @@ def _login_help(browser: str) -> str:
             "--cookies-from-browser (safari, chrome, firefox, brave, edge).")
 
 
+def _cache() -> dict:
+    # In the portable runtime yt-dlp keeps its cache with the runtime's others, not in ~/.cache.
+    cache = os.environ.get("PLAYALONG_CACHE")
+    return {"cachedir": str(Path(cache) / "yt-dlp")} if cache else {}
+
+
 def _info(url: str, browser: str | None) -> dict:
     login = {"cookiesfrombrowser": (browser,)} if browser else {}
-    with YoutubeDL({"quiet": True, "noplaylist": True, "logger": _Silent(), **login}) as ydl:
+    with YoutubeDL({"quiet": True, "noplaylist": True, "logger": _Silent(), **login, **_cache()}) as ydl:
         return ydl.extract_info(url, download=False)
 
 
@@ -132,6 +139,7 @@ def fetch(url: str, library: Path, browser: str | None = None) -> Path:
         "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "wav"}],
         "postprocessor_args": {"extractaudio": FFMPEG_ARGS},
         **login,
+        **_cache(),
     }
     with YoutubeDL(opts) as ydl:
         ydl.download([url])
