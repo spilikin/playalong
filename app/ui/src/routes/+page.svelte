@@ -51,10 +51,10 @@
   let scroller = $state<HTMLElement>();
   // The mix list's Edit mode: the main area shows the mixer of the mix playing instead of the chords.
   let editing = $state(false);
-  // Song… in the toolbar: the song's own settings in the main area. One or the other, never both.
-  let songOpen = $state(false);
+  // In Edit mode the main area has two tabs: the selected mix's mixer, and the song's own settings.
+  let editTab = $state<'mix' | 'song'>('mix');
   $effect(() => {
-    if (editing) songOpen = false;
+    if (!editing) editTab = 'mix';
   });
   // Song time to wait at once the song is open (`--at` on the command line).
   let resumeAt: number | null = null;
@@ -113,7 +113,6 @@
       }
       await openPlayback(result.folder);
       editing = false;
-      songOpen = false;
       opened = result;
       error = '';
       remember(path);
@@ -291,14 +290,6 @@
       <div class="tools">
         <AppUpdate />
         <ThemeToggle />
-        <button
-          class="open"
-          aria-pressed={songOpen}
-          onclick={() => {
-            songOpen = !songOpen;
-            if (songOpen) editing = false;
-          }}>{s.songButton}</button
-        >
         {#if maker.installed}
           <button class="open" onclick={toLibrary}>{s.backToLibrary}</button>
         {:else}
@@ -315,16 +306,24 @@
 
     <div class="main">
       {#if error}<p class="error banner" role="alert">{error}</p>{/if}
-      {#if songOpen}
-        <SongPanel
-          {opened}
-          songSeconds={time}
-          transpose={recipe?.transpose ?? 0}
-          onChanged={songChanged}
-          onDeleted={toLibrary}
-        />
-      {:else if editing && recipe}
-        <Mixer {recipe} song={opened.song} />
+      {#if editing && recipe}
+        <div class="tabs" role="tablist">
+          <button role="tab" aria-selected={editTab === 'mix'} onclick={() => (editTab = 'mix')}
+            >{s.mixTab(recipe.name)}</button
+          >
+          <button role="tab" aria-selected={editTab === 'song'} onclick={() => (editTab = 'song')}>{s.songPanel}</button>
+        </div>
+        {#if editTab === 'song'}
+          <SongPanel
+            {opened}
+            songSeconds={time}
+            transpose={recipe.transpose}
+            onChanged={songChanged}
+            onDeleted={toLibrary}
+          />
+        {:else}
+          <Mixer {recipe} song={opened.song} />
+        {/if}
       {:else}
       {#if !song.chords}
         <p class="banner">{s.noChords[0]}<code>playalong chords</code>{s.noChords[1]}</p>
@@ -521,6 +520,28 @@
     margin-top: auto;
     padding: 16px 8px 0;
     opacity: 0.85;
+  }
+  .tabs {
+    display: inline-flex;
+    align-self: flex-start;
+    margin: 14px 24px 0;
+    padding: 2px;
+    border-radius: 9px;
+    background: var(--fill);
+  }
+  .tabs button {
+    font-size: 13px;
+    padding: 4px 14px;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--muted);
+  }
+  .tabs button[aria-selected='true'] {
+    background: var(--bg);
+    color: var(--ink);
+    font-weight: 600;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
   }
   .main {
     grid-row: 2;

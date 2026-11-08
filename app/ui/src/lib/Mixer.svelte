@@ -29,10 +29,7 @@
 </script>
 
 <section class="mixer" aria-label={s.mixer}>
-  <div class="top">
-    <h2>{recipe.name}</h2>
-    <span class="muted small">{s.mixerHint}</span>
-  </div>
+  <span class="muted small">{s.mixerHint}</span>
 
   <div class="settings">
     <div class="field">
@@ -133,16 +130,6 @@
     padding: 18px 24px 22px;
     min-height: 0;
     overflow-y: auto;
-  }
-  .top {
-    display: flex;
-    align-items: baseline;
-    gap: 10px;
-    flex-wrap: wrap;
-  }
-  h2 {
-    margin: 0;
-    font-size: 20px;
   }
   .settings {
     display: flex;

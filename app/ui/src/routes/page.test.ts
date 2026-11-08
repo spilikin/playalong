@@ -305,15 +305,28 @@ describe('editing mixes', () => {
   it('Edit shows the mixer of the mix playing in place of the chords, Done goes back', async () => {
     const mixer = await edit();
     expect(screen.getByRole('button', { name: 'Done', pressed: true })).toBeTruthy();
-    expect(mixer.getByRole('heading', { name: 'Original' })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: 'Mix · Original', selected: true })).toBeTruthy();
+    expect(mixer.getByRole('slider', { name: 'Guitar' })).toBeTruthy();
     expect(screen.queryByRole('region', { name: 'Chords' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Song…' })).toBeNull();
     await fireEvent.click(screen.getByRole('button', { name: 'Done' }));
     expect(screen.getByRole('region', { name: 'Chords' })).toBeTruthy();
   });
 
-  it('renames a mix and keeps it, without rendering anything', async () => {
+  async function menu(name: string) {
+    await fireEvent.contextMenu(screen.getByRole('button', { name: new RegExp(`^${name},`) }));
+    return within(screen.getByRole('menu'));
+  }
+
+  it('renames a mix from its right-click menu and keeps it, without rendering anything', async () => {
     await edit();
-    await fireEvent.input(screen.getByRole('textbox', { name: 'Name of Guide' }), { target: { value: 'Band' } });
+    expect(screen.queryByRole('textbox', { name: /^Name of / })).toBeNull();
+    await fireEvent.click((await menu('Guide')).getByRole('menuitem', { name: 'Rename…' }));
+    const field = screen.getByRole('textbox', { name: 'Name of Guide' });
+    await fireEvent.input(field, { target: { value: 'Band' } });
+    await fireEvent.keyDown(field, { key: 'Enter' });
+    expect(screen.queryByRole('textbox', { name: /^Name of / })).toBeNull();
+    expect(screen.getByRole('button', { name: /^Band,/ })).toBeTruthy();
     await waitFor(() =>
       expect((calls.find((c) => c.cmd === 'mixes_save')?.args as { mixes: Recipe[] }).mixes[1].name).toBe('Band'),
     );
@@ -337,28 +350,52 @@ describe('editing mixes', () => {
     expect(lastMix()).toMatchObject({ mute: ['guitar'], solo: [], transpose: -1 });
   });
 
-  it('makes, duplicates, moves and deletes mixes', async () => {
+  it('esc leaves a rename without changing the name', async () => {
+    await edit();
+    await fireEvent.click((await menu('Guide')).getByRole('menuitem', { name: 'Rename…' }));
+    const field = screen.getByRole('textbox', { name: 'Name of Guide' });
+    await fireEvent.input(field, { target: { value: 'Oops' } });
+    await fireEvent.keyDown(field, { key: 'Escape' });
+    expect(screen.getByRole('button', { name: /^Guide,/ })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /^Oops,/ })).toBeNull();
+  });
+
+  it('makes, duplicates and deletes mixes', async () => {
     await edit();
     await fireEvent.click(screen.getByRole('button', { name: '+ New mix' }));
     expect(screen.getByRole('textbox', { name: 'Name of Original copy' })).toBeTruthy();
-    expect(screen.getByRole('heading', { name: 'Original copy' })).toBeTruthy();
-    await fireEvent.click(screen.getByRole('button', { name: 'More for Guide' }));
-    await fireEvent.click(screen.getByRole('menuitem', { name: 'Move up' }));
-    await fireEvent.click(screen.getByRole('button', { name: 'More for No guitar' }));
-    await fireEvent.click(screen.getByRole('menuitem', { name: 'Delete' }));
-    const names = screen.getAllByRole('textbox', { name: /^Name of / }).map((i) => (i as HTMLInputElement).value);
-    expect(names).toEqual(['Guide', 'Original', 'Original copy']);
+    expect(screen.getByRole('tab', { name: /Original copy/, selected: true })).toBeTruthy();
+    await fireEvent.keyDown(screen.getByRole('textbox', { name: 'Name of Original copy' }), { key: 'Enter' });
+    await fireEvent.click((await menu('Guide')).getByRole('menuitem', { name: 'Duplicate' }));
+    await fireEvent.keyDown(screen.getByRole('textbox', { name: 'Name of Guide copy' }), { key: 'Enter' });
+    await fireEvent.click((await menu('No guitar')).getByRole('menuitem', { name: 'Delete' }));
+    const names = screen.getAllByRole('button', { name: /,/ }).map((b) => b.getAttribute('aria-label')?.split(',')[0]);
+    expect(names).toEqual(['Original', 'Guide', 'Guide copy', 'Original copy']);
     await waitFor(() =>
-      expect((calls.filter((c) => c.cmd === 'mixes_save').at(-1)?.args as { mixes: Recipe[] }).mixes).toHaveLength(3),
+      expect((calls.filter((c) => c.cmd === 'mixes_save').at(-1)?.args as { mixes: Recipe[] }).mixes).toHaveLength(4),
     );
+  });
+
+  it('moves a mix by dragging it with the mouse', async () => {
+    await edit();
+    const rows = screen.getAllByRole('button', { name: /,/ });
+    rows.forEach((row, i) => {
+      row.getBoundingClientRect = () => ({ top: i * 40, bottom: i * 40 + 40, height: 40, left: 0, right: 180, width: 180, x: 0, y: i * 40, toJSON: () => ({}) });
+    });
+    await fireEvent.pointerDown(rows[0], { button: 0, clientY: 20, pointerId: 1 });
+    await fireEvent.pointerMove(rows[0], { clientY: 70, pointerId: 1 });
+    await fireEvent.pointerMove(rows[0], { clientY: 110, pointerId: 1 });
+    expect(screen.getByTestId('drop-line')).toBeTruthy();
+    await fireEvent.pointerUp(rows[0], { clientY: 110, pointerId: 1 });
+    const names = screen.getAllByRole('button', { name: /,/ }).map((b) => b.getAttribute('aria-label')?.split(',')[0]);
+    expect(names).toEqual(['Guide', 'No guitar', 'Original']);
   });
 
   it('exports a mix as an MP3', async () => {
     ipc.song_export = () => '/lib/kad-izdzisis/exports/kad - Guide.mp3';
     await edit();
-    await fireEvent.click(screen.getByRole('button', { name: 'More for Guide' }));
-    await fireEvent.click(screen.getByRole('menuitem', { name: 'Export MP3…' }));
-    expect(calls.find((c) => c.cmd === 'song_export')?.args).toEqual({ folder: '/lib/kad-izdzisis', mix: 'guide' });
+    await fireEvent.click((await menu('Guide')).getByRole('menuitem', { name: 'Export MP3…' }));
+    await waitFor(() => expect(calls.find((c) => c.cmd === 'song_export')?.args).toEqual({ folder: '/lib/kad-izdzisis', mix: 'guide' }));
     expect(await screen.findByText(/shown in Finder/)).toBeTruthy();
   });
 
@@ -375,7 +412,8 @@ describe('song editing', () => {
     render(Page);
     await fireEvent.click(await screen.findByRole('button', { name: 'Open song folder…' }));
     await screen.findByRole('heading', { name: 'Kad izdzisīs' });
-    await fireEvent.click(screen.getByRole('button', { name: 'Song…' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    await fireEvent.click(screen.getByRole('tab', { name: 'Song' }));
     return within(await screen.findByRole('region', { name: 'Song' }));
   }
 
@@ -435,7 +473,8 @@ describe('song editing', () => {
     render(Page);
     await fireEvent.click(await screen.findByRole('button', { name: 'Open folder…' }));
     await screen.findByRole('heading', { name: 'Kad izdzisīs' });
-    await fireEvent.click(screen.getByRole('button', { name: 'Song…' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    await fireEvent.click(screen.getByRole('tab', { name: 'Song' }));
     await fireEvent.click(await screen.findByRole('button', { name: 'Delete song…' }));
     await waitFor(() =>
       expect(calls.find((c) => c.cmd === 'delete_song')?.args).toEqual({ folder: '/lib/kad-izdzisis', library: '/m/Playalong' }),
@@ -463,7 +502,8 @@ describe('after the review', () => {
     let finish: (v: unknown) => void = () => {};
     ipc.song_retime = () => new Promise((resolve) => (finish = resolve));
     await openSong();
-    await fireEvent.click(screen.getByRole('button', { name: 'Song…' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    await fireEvent.click(screen.getByRole('tab', { name: 'Song' }));
     await fireEvent.click(await screen.findByRole('button', { name: 'Detect again' }));
     await fireEvent.click(screen.getByRole('button', { name: '‹ Library' }));
     await screen.findByRole('heading', { name: 'Library' });
@@ -479,7 +519,10 @@ describe('after the review', () => {
     };
     await openSong();
     await fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    await fireEvent.contextMenu(screen.getByRole('button', { name: /^Guide,/ }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Rename…' }));
     await fireEvent.input(screen.getByRole('textbox', { name: 'Name of Guide' }), { target: { value: 'Band' } });
+    await fireEvent.keyDown(screen.getByRole('textbox', { name: 'Name of Guide' }), { key: 'Enter' });
     expect(await screen.findByText(/Permission denied/)).toBeTruthy();
   });
 
@@ -487,9 +530,10 @@ describe('after the review', () => {
     ipc.song_export = () => '/lib/kad-izdzisis/exports/kad - Guide copy.mp3';
     await openSong();
     await fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
-    await fireEvent.click(screen.getByRole('button', { name: 'More for Guide' }));
+    await fireEvent.contextMenu(screen.getByRole('button', { name: /^Guide,/ }));
     await fireEvent.click(screen.getByRole('menuitem', { name: 'Duplicate' }));
-    await fireEvent.click(screen.getByRole('button', { name: 'More for Guide copy' }));
+    await fireEvent.keyDown(screen.getByRole('textbox', { name: 'Name of Guide copy' }), { key: 'Enter' });
+    await fireEvent.contextMenu(screen.getByRole('button', { name: /^Guide copy,/ }));
     await fireEvent.click(screen.getByRole('menuitem', { name: 'Export MP3…' }));
     await waitFor(() => expect(calls.some((c) => c.cmd === 'song_export')).toBe(true));
     const order = calls.map((c) => c.cmd).filter((c) => c === 'mixes_save' || c === 'song_export');

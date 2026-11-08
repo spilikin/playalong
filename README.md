@@ -287,18 +287,17 @@ so keep a backup of both.
 ### Using it
 
 - The toolbar sits in the window's title bar: Restart and Play, the album cover with title, key,
-  tempo and position, a light/dark toggle (the system's appearance until you use it), **Song…** and
-  ‹ Library.
+  tempo and position, a light/dark toggle (the system's appearance until you use it) and ‹ Library.
 - The sidebar lists the song's mixes with what each one changes ("guitar off · −2 · 90%"); keys 1–9
   switch. Switching keeps your place in the song; a mix in another key shows the key, chords and
   shapes moved with it.
-- **Edit** at the top of the list turns it into an editor (**Done** goes back): rename a mix in place,
-  drag to reorder, ⋯ for Duplicate, Move up/down, Export MP3… and Delete, and **+ New mix**. The main
-  area shows the selected mix's mixer: key, tempo and count-in, and per instrument a level, Mute and
-  Solo, plus presets to start from. The song keeps playing and every change is heard and kept at once.
-- **Song…** holds what belongs to the song: where it starts (typed, or set to the playhead), its BPM
-  (typed or tapped), finding the chords again, GarageBand projects per key, and deleting the song.
-  A new start or tempo finds chords and bars again in the background, then the song plays on.
+- **Edit** at the top of the list turns it into an editor (**Done** goes back): drag a mix to move it,
+  right-click it to rename, duplicate, export or delete it, and **+ New mix** adds one. The main area gets
+  two tabs: **Mix**, the selected mix's mixer (key, tempo and count-in, and per instrument a level, Mute
+  and Solo, plus presets to start from), heard and kept at once while the song plays; and **Song**, what
+  belongs to the song: where it starts (typed, or set to the playhead), its BPM (typed or tapped),
+  finding the chords again, GarageBand projects per key, and deleting the song. A new start or tempo
+  finds chords and bars again in the background, then the song plays on.
 - **Export MP3…** writes the mix as it's set to `exports/` in the song folder and shows it in Finder.
 - The chord strip stays put; only the bars scroll. Click a bar to jump there.
 - Keys: Space play/pause · ← → 5 s · Home: back to the start (count-in included) · 1–9 mixes.

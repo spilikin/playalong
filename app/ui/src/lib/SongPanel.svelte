@@ -93,10 +93,7 @@
 </script>
 
 <section class="panel" aria-label={s.songPanel}>
-  <div class="top">
-    <h2>{s.songPanel}</h2>
-    <span class="muted small">{s.songHint}</span>
-  </div>
+  <span class="muted small">{s.songHint}</span>
 
   <div class="field">
     <b>{s.songStarts}</b>
@@ -181,16 +178,6 @@
     padding: 18px 26px 22px;
     min-height: 0;
     overflow-y: auto;
-  }
-  .top {
-    display: flex;
-    align-items: baseline;
-    gap: 10px;
-    margin-bottom: 8px;
-  }
-  h2 {
-    margin: 0;
-    font-size: 20px;
   }
   .field {
     display: grid;
