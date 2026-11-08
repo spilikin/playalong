@@ -71,6 +71,8 @@ const EN = {
   backToLibrary: '‹ Library',
   tools: (version: string) => `Audio tools ${version}`,
   upToDate: 'up to date',
+  appUpdate: 'Update ready · Restart',
+  appUpdateTitle: (version: string) => `Restart to use Playalong ${version}`,
   toolsUpdate: (mb: number) => `Update · ${mb} MB`,
   setupTitle: 'Turn any song into playalong tracks',
   setupText:
@@ -166,6 +168,8 @@ const LV: Strings = {
   backToLibrary: '‹ Bibliotēka',
   tools: (version: string) => `Audio rīki ${version}`,
   upToDate: 'jaunākie',
+  appUpdate: 'Atjauninājums gatavs · Restartēt',
+  appUpdateTitle: (version: string) => `Restartē, lai lietotu Playalong ${version}`,
   toolsUpdate: (mb: number) => `Atjaunināt · ${mb} MB`,
   setupTitle: 'Pārvērt jebkuru dziesmu par spēlēšanas līdzi celiņiem',
   setupText:

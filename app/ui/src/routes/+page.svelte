@@ -10,6 +10,8 @@
   import MakingCard from '$lib/MakingCard.svelte';
   import MixIcon from '$lib/MixIcon.svelte';
   import ThemeToggle from '$lib/ThemeToggle.svelte';
+  import AppUpdate from '$lib/AppUpdate.svelte';
+  import { checkAppUpdate } from '$lib/selfUpdate.svelte';
   import Welcome from '$lib/Welcome.svelte';
   import Wordmark from '$lib/Wordmark.svelte';
   import { clearJob, maker, refreshLibrary, startMaker } from '$lib/maker.svelte';
@@ -193,6 +195,7 @@
 
   onMount(() => {
     void startMaker();
+    void checkAppUpdate();
     let stop: (() => void) | undefined;
     let destroyed = false;
     // `Playalong <folder> [--at SECONDS]` opens that song, waiting at that point in it.
@@ -280,6 +283,7 @@
         </div>
       </div>
       <div class="tools">
+        <AppUpdate />
         <ThemeToggle />
         {#if maker.installed}
           <button class="open" onclick={toLibrary}>{s.backToLibrary}</button>

@@ -4,6 +4,7 @@
   import { convertFileSrc } from '@tauri-apps/api/core';
   import { open } from '@tauri-apps/plugin-dialog';
   import ThemeToggle from './ThemeToggle.svelte';
+  import AppUpdate from './AppUpdate.svelte';
   import { locale, strings } from './i18n.svelte';
   import { clearJob, installTools, maker, makeSong, stopSong } from './maker.svelte';
   import { addedLabel, keyShort, matches, megabytes, stepOf, transposeLabel } from './maker';
@@ -57,6 +58,7 @@
     <span class="muted" data-tauri-drag-region>{s.songCount(maker.songs.length)}</span>
     <span class="grow" data-tauri-drag-region></span>
     <input class="search" type="search" placeholder={s.search} aria-label={s.searchLabel} bind:value={query} />
+    <AppUpdate />
     <ThemeToggle />
     <button onclick={onPick}>{s.openFolderShort}</button>
   </header>

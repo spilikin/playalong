@@ -2,6 +2,7 @@
   // The start screen until the audio tools are in place: open a song folder, or download the tools that
   // make new songs.
   import ThemeToggle from './ThemeToggle.svelte';
+  import AppUpdate from './AppUpdate.svelte';
   import { strings } from './i18n.svelte';
   import { installTools, maker } from './maker.svelte';
   import { megabytes, progressText, type Progress } from './maker';
@@ -34,6 +35,7 @@
 </script>
 
 <div class="titlebar" data-tauri-drag-region>
+  <AppUpdate />
   <ThemeToggle />
 </div>
 <main class="start">
