@@ -231,8 +231,8 @@ or choose an audio file) and **Make song**: it downloads the song, splits it int
 chords and makes the original mix, then opens it. Other mixes are made on request in the player:
 **Edit**, next to Play, shows the song's mixes one version (key and tempo) at a time, starting at the mix
 you're playing. Each mix type is a row, marked made or ticked to make, including your own instrument
-levels and the GarageBand stems. The ticks, levels and count-in are remembered for the next song. Songs made elsewhere open with
-**Open folder…** or by dropping a folder on the window.
+levels and the GarageBand stems. The ticks, levels and count-in are remembered for the next song. Songs
+made elsewhere open with **Open folder…** or by dropping a folder on the window.
 
 ### Updates
 
