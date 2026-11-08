@@ -39,13 +39,12 @@
 
   {#if songTitle}
     <h3 title={songTitle}>{songTitle}</h3>
-    <button class="item" aria-pressed={place === 'song'} onclick={() => (place = 'song')}>
+    <button class="item song" aria-pressed={place === 'song'} title={s.songHint} onclick={() => (place = 'song')}>
       <span class="icon" aria-hidden="true">⚙</span>
       <span class="name">{s.songPanel}</span>
+      <span class="chevron" aria-hidden="true">›</span>
     </button>
-    <div class="tree">
-      <MixList onChoose={() => (place = 'player')} />
-    </div>
+    <MixList onChoose={() => (place = 'player')} />
   {/if}
 
   <div class="bottom">
@@ -110,10 +109,13 @@
     color: var(--muted);
     font-weight: 400;
   }
-  .tree {
-    margin-left: 14px;
-    padding-left: 6px;
-    border-left: 1px solid var(--hairline);
+  /* The song's own settings, set apart from its mixes below: a tinted row that leads somewhere. */
+  .song {
+    margin-bottom: 6px;
+    background: var(--fill);
+  }
+  .chevron {
+    color: var(--muted);
   }
   .bottom {
     margin-top: auto;

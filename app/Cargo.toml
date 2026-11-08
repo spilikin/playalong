@@ -1,3 +1,11 @@
 [workspace]
 members = ["src-tauri"]
 resolver = "3"
+
+# The app built for testing (tauri build --debug) still has to play audio in real time: decoding the stems,
+# the mixer and Rubber Band are far too slow unoptimized.
+[profile.dev]
+opt-level = 2
+
+[profile.dev.package."*"]
+opt-level = 3
