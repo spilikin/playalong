@@ -215,7 +215,7 @@ describe('managing mixes', () => {
     ipc.list_library = () => [];
     render(Page);
     await fireEvent.click(await screen.findByRole('button', { name: 'Open folder…' }));
-    await fireEvent.click(await screen.findByRole('button', { name: 'Manage mixes' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
     return within(await screen.findByRole('region', { name: 'Mixes' }));
   }
 
@@ -273,7 +273,7 @@ describe('managing mixes', () => {
     expect(backing.getByText(/playing/)).toBeTruthy();
     await fireEvent.click(page.getByRole('button', { name: '‹ Chords' }));
     expect(screen.queryByRole('region', { name: 'Mixes' })).toBeNull();
-    expect(screen.getByRole('button', { name: 'Manage mixes', pressed: false })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Edit', pressed: false })).toBeTruthy();
   });
 
   it('says why mixes could not be made', async () => {

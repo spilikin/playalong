@@ -268,6 +268,14 @@
         <button class="play" onclick={toggle} aria-label={playing ? s.pause : s.play} title={s.playTitle}
           >{playing ? '❚❚' : '▶'}</button
         >
+        {#if maker.installed}
+          <button class="edit" aria-pressed={managing} title={s.manageMixesTitle} onclick={() => (managing = !managing)}>
+            <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
+              <path d="M11.5 2.5l2 2L6 12H4v-2z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" />
+            </svg>
+            {s.manageMixes}
+          </button>
+        {/if}
       </div>
       <div class="now" data-tauri-drag-region>
         {#if cover}
@@ -302,9 +310,6 @@
         <AppUpdate />
         <ThemeToggle />
         {#if maker.installed}
-          <button class="open manage" aria-pressed={managing} onclick={() => (managing = !managing)}
-            >{s.manageMixes}</button
-          >
           <button class="open" onclick={toLibrary}>{s.backToLibrary}</button>
         {:else}
           <button class="open" onclick={pick}>{s.open}</button>
@@ -576,11 +581,22 @@
   .tray h2.more {
     margin-top: 14px;
   }
-  .manage[aria-pressed='true'] {
-    background: var(--accent-soft);
+  /* Stands apart from the round playback buttons: it changes what the window shows, not what plays. */
+  .controls .edit {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-left: 6px;
+    padding: 5px 11px;
+    border-radius: 8px;
     border-color: var(--accent);
     color: var(--accent);
+    font-size: 12px;
     font-weight: 600;
+  }
+  .controls .edit[aria-pressed='true'] {
+    background: var(--accent);
+    color: var(--on-accent);
   }
   .foot {
     margin-top: auto;
